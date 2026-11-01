@@ -1,0 +1,10 @@
+# FTP credentials — NEVER commit
+config.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# OS
+.DS_Store

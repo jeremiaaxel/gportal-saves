@@ -1,0 +1,8 @@
+{
+  "_comment": "Copy this file to config.json and fill in. FTP host/user/password are shown in the GPORTAL web UI under Status. Leave password empty to be prompted? No — keep it simple; this file stays on your PC.",
+  "host": "ch.g-portal.com",
+  "port": 21,
+  "user": "your-ftp-user",
+  "password": "your-ftp-password",
+  "client_dir": "C:/Users/YOU/AppData/Local/Icarus/Saved"
+}

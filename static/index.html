@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gportal-saves</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <h1>GPORTAL Saves</h1>
+  <div id="conn-banner" class="banner hidden"></div>
+</header>
+<main>
+
+  <!-- ══════════ SETUP WIZARD (shown until configured) ══════════ -->
+  <section class="card setup" id="setup-card">
+    <h2>One-time setup</h2>
+    <p class="muted">Takes ~2 minutes. Everything stays on this computer.</p>
+
+    <div class="wizard-steps">
+      <div class="wstep" id="wstep-1">
+        <h3>Step 1 · Get your FTP details from GPORTAL <span class="wcheck" id="ws1-check"></span></h3>
+        <ol>
+          <li>Open <b>g-portal.com</b> → log in → <b>My servers</b> → click your Icarus server.</li>
+          <li>In the left menu click <b>Status</b>.</li>
+          <li>Find the <b>FTP</b> block: host (like <code>ch.g-portal.com</code>), login and password.</li>
+        </ol>
+        <div class="row">
+          <input id="cfg-host" placeholder="FTP host, e.g. ch.g-portal.com" autocomplete="off" spellcheck="false">
+          <input id="cfg-port" placeholder="21" size="4" autocomplete="off">
+          <input id="cfg-user" placeholder="FTP user" autocomplete="off" spellcheck="false">
+          <input id="cfg-pass" placeholder="FTP password" type="password" autocomplete="off">
+        </div>
+        <div class="row">
+          <button id="btn-cfg-test" class="btn">Test connection</button>
+        </div>
+        <div id="cfg-test-result" class="muted"></div>
+      </div>
+
+      <div class="wstep" id="wstep-2">
+        <h3>Step 2 · Where your Icarus client saves live (optional, for the offline proof)</h3>
+        <p class="muted">Only needed on the machine you play Icarus on. You can set it later in Settings.</p>
+        <div class="row">
+          <input id="cfg-client-dir" placeholder="e.g. C:/Users/YOU/AppData/Local/Icarus/Saved" autocomplete="off" spellcheck="false" style="flex:1">
+        </div>
+      </div>
+
+      <div class="wstep">
+        <h3>Step 3 · Save</h3>
+        <div class="row">
+          <button id="btn-cfg-save" class="btn primary">Save configuration</button>
+          <span id="cfg-save-result" class="muted"></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ MAIN APP (shown when configured) ══════════ -->
+  <section class="card hidden" id="status-card">
+    <h2>Server connection</h2>
+    <div class="row">
+      <button id="btn-status" class="btn">Check FTP server</button>
+      <button id="btn-pull" class="btn primary">⬇ Backup now (server → local)</button>
+      <button id="btn-verify" class="btn">Verify latest backup</button>
+      <button id="btn-settings" class="btn tiny" style="margin-left:auto">⚙ Settings</button>
+    </div>
+    <div id="server-status" class="muted"></div>
+  </section>
+
+  <section class="card hidden" id="snapshots-card">
+    <h2>Snapshots</h2>
+    <table id="snap-table">
+      <thead><tr><th>Snapshot</th><th>Files</th><th>Size</th><th>Actions</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <p class="muted" id="store-path"></p>
+  </section>
+
+  <section class="card hidden" id="restore-card">
+    <h2>Restore</h2>
+    <div class="row">
+      <button id="btn-push-server" class="btn warn">⬆ Restore selected → server</button>
+      <button id="btn-push-client" class="btn">⬆ Copy selected → client Saved folder</button>
+    </div>
+    <p class="muted">Select a snapshot above first. Stop the server in the GPORTAL web UI before restoring.</p>
+  </section>
+
+  <section class="card" id="notes-card">
+    <h2>ICARUS: making sure you really have everything</h2>
+    <ol>
+      <li><b>Backup now</b> pulls <code>Prospects/</code> (worlds) + per-SteamID player progression + server config.</li>
+      <li><b>Verify</b> checks offline that every critical component is present in the latest snapshot.</li>
+      <li><b>The real proof — no re-renting needed.</b> The Icarus client reads the same folder layout as the server, so:
+        <ul>
+          <li>use <b>Copy → client Saved folder</b> (needs the Step-2 path), or manually copy
+              <code>Prospects/</code> → <code>%LOCALAPPDATA%\Icarus\Saved\Prospects\</code> and the SteamID folder →
+              <code>%LOCALAPPDATA%\Icarus\Saved\PlayerData\&lt;your steamid&gt;\</code>;</li>
+          <li>launch Icarus <b>single-player</b> — if the prospect appears in your load list, the backup is complete and playable;</li>
+          <li>remove the copies afterwards (Steam Cloud / OneDrive can fight manual saves).</li>
+        </ul>
+      </li>
+      <li><b>Later:</b> rent a fresh server, stop it in the GPORTAL UI, hit <b>Restore → server</b>, restart, connect.
+          First reconnect may fail with <b>Error 65</b> — just retry.</li>
+    </ol>
+    <p class="muted">GPORTAL's built-in backups live on the rented server itself — they do <b>not</b> survive the rental ending.
+    Only a local copy does. Cancel via <b>Payment and Duration → Cancellation</b>; the server runs until the paid term ends, so back up before you cancel.</p>
+  </section>
+
+  <section class="card hidden" id="settings-card">
+    <h2>⚙ Settings</h2>
+    <div class="row">
+      <input id="set-host" placeholder="FTP host" autocomplete="off" spellcheck="false">
+      <input id="set-port" placeholder="21" size="4" autocomplete="off">
+      <input id="set-user" placeholder="FTP user" autocomplete="off" spellcheck="false">
+      <input id="set-pass" placeholder="password (leave blank to keep)" type="password" autocomplete="off">
+    </div>
+    <div class="row">
+      <input id="set-client-dir" placeholder="client Icarus Saved folder (optional)" autocomplete="off" spellcheck="false" style="flex:1">
+    </div>
+    <div class="row">
+      <button id="btn-set-save" class="btn primary">Save</button>
+      <button id="btn-set-test" class="btn">Test connection</button>
+      <span id="set-result" class="muted"></span>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Activity log</h2>
+    <pre id="log" class="log">Waiting for action…</pre>
+  </section>
+</main>
+<script src="/app.js"></script>
+</body>
+</html>

@@ -88,6 +88,44 @@ footer {
   padding: 18px 0 8px; font-size: 12px; text-align: center; opacity: .7;
 }
 .warn-text { color: var(--warn); }
+
+/* ── two-workflow layout ── */
+.header-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.workflows {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+  align-items: start;
+}
+@media (max-width: 900px) { .workflows { grid-template-columns: 1fr; } }
+.wf.wf { padding-top: 14px; }
+.wf-title { font-size: 19px; margin-bottom: 2px; }
+.wf-title.backup { color: var(--accent); }
+.wf-title.restore { color: var(--warn); }
+.wf-actions { margin: 12px 0; display: flex; flex-direction: column; gap: 8px; }
+.wf-sub { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 10px; }
+.wf-sub h3 { margin-top: 4px; }
+.restore-pick { margin: 4px 0 10px; }
+.restore-pick h3 { margin: 12px 0 6px; }
+.radio-row {
+  display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+  border-radius: 7px; cursor: pointer; font-size: 14px;
+}
+.radio-row:hover { background: rgba(77, 163, 255, .08); }
+.radio-row input { width: auto; min-width: 0; margin: 0; }
+#restore-snapshot { margin: 4px 0 4px 28px; }
+#btn-restore { margin-top: 8px; }
+#restore-hint { margin-top: 8px; }
+.badge {
+  display: inline-block; font-size: 11px; padding: 2px 7px; border-radius: 9px;
+  vertical-align: middle;
+}
+.badge.ok { background: rgba(63, 185, 111, .18); color: var(--ok); }
+.badge.err { background: rgba(224, 93, 93, .18); color: var(--err); }
+.badge.accent { background: rgba(77, 163, 255, .18); color: var(--accent); }
+.badge.muted-badge { background: rgba(138, 146, 166, .15); color: var(--muted); }
+select {
+  background: #0b0d12; border: 1px solid var(--border); color: var(--text);
+  border-radius: 7px; padding: 8px 10px; font-size: 14px; min-width: 220px;
+}
 .hidden { display: none; }
 .banner {
   background: rgba(224, 93, 93, .15); border: 1px solid var(--err);
@@ -114,4 +152,5 @@ footer {
   .btn { background: #eef1f7; }
   .notes code { background: #eef1f7; }
   input { background: #fff; }
+  select { background: #fff; }
 }

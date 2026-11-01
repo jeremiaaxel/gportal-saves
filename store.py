@@ -54,12 +54,26 @@ def read_manifest(game_id: str) -> dict:
     return {"snapshots": {}}
 
 
-def update_manifest(game_id: str, snap_name: str, record: dict) -> None:
+def set_meta(game_id: str, key: str, value) -> None:
+    """Store a top-level metadata key in the manifest (e.g. last_verify)."""
     m = read_manifest(game_id)
-    m["snapshots"][snap_name] = record
-    m["last_updated"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    m[key] = value
+    write_manifest(game_id, m)
+
+
+def write_manifest(game_id: str, manifest: dict) -> None:
+    """Persist a full manifest dict (single writer point — avoids
+    read-modify-write clobbering between callers)."""
+    manifest["last_updated"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     manifest_path(game_id).parent.mkdir(parents=True, exist_ok=True)
-    manifest_path(game_id).write_text(json.dumps(m, indent=2))
+    manifest_path(game_id).write_text(json.dumps(manifest, indent=2))
+
+
+def update_manifest(game_id: str, snap_name: str, record: dict) -> None:
+    """Merge a snapshot record in (preserves sibling keys like 'verify')."""
+    m = read_manifest(game_id)
+    m["snapshots"].setdefault(snap_name, {}).update(record)
+    write_manifest(game_id, m)
 
 
 def snapshot_record(game_id: str, snap_dir: Path, game_spec) -> dict:
@@ -93,8 +107,7 @@ def prune_snapshots(game_id: str, keep: int = 10) -> list[str]:
         m["snapshots"].pop(old.name, None)
         removed.append(old.name)
     if removed:
-        manifest_path(game_id).parent.mkdir(parents=True, exist_ok=True)
-        manifest_path(game_id).write_text(json.dumps(m, indent=2))
+        write_manifest(game_id, m)
     return removed
 
 

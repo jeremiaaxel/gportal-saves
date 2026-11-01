@@ -1,5 +1,5 @@
 const $ = (sel) => document.querySelector(sel);
-let selected = null;
+
 let pollTimer = null;
 let configState = { configured: false };
 
@@ -71,9 +71,7 @@ async function refresh() {
 function renderState(st) {
   const configured = !!st.configured;
   $("#setup-card").classList.toggle("hidden", configured);
-  $("#status-card").classList.toggle("hidden", !configured);
-  $("#snapshots-card").classList.toggle("hidden", !configured);
-  $("#restore-card").classList.toggle("hidden", !configured);
+  $("#workflows-wrap").classList.toggle("hidden", !configured);
   $("#settings-card").classList.add("hidden"); // start collapsed
 
   if (configured) {
@@ -103,20 +101,42 @@ function storageNote(kind) {
 function renderSnapshots(st) {
   const tbody = $("#snap-table tbody");
   tbody.innerHTML = "";
-  const all = Object.values(st.snapshots).flat();
-  if (!all.length) {
+  const list = (st.snapshots[st.games[0]] || []);
+  const lv = (st.last_verify || {})[st.games[0]];
+  if (!list.length) {
     tbody.innerHTML = `<tr><td colspan="4" class="muted">No snapshots yet — hit "⬇ Backup now".</td></tr>`;
   }
-  for (const gid of st.games) {
-    for (const s of st.snapshots[gid] || []) {
-      const tr = document.createElement("tr");
-      tr.className = selected === s.name ? "selected" : "";
-      tr.innerHTML = `<td>${s.name}</td><td>—</td><td>—</td><td>
-        <button class="btn tiny" data-sel="${s.name}">${selected === s.name ? "✓ selected" : "select"}</button></td>`;
-      tbody.appendChild(tr);
-    }
+  for (const s of list) {
+    const tr = document.createElement("tr");
+    const v = s.verify;
+    const vBadge = v ? (v.ok ? `<span class="badge ok">✔ verified</span>` : `<span class="badge err">✘ failed</span>`)
+                      : (lv && lv.snapshot === s.name ? `<span class="badge ok">✔ verified</span>` : `<span class="badge muted-badge">not verified</span>`);
+    tr.innerHTML = `<td>${s.name}${s.name === list[0].name ? ' <span class="badge accent">latest</span>' : ""}</td>
+      <td>${s.files ?? "—"}</td>
+      <td>${fmtBytes(s.bytes)}</td>
+      <td>${vBadge}</td>`;
+    tbody.appendChild(tr);
   }
+  // restore "from" options
+  const sel = $("#restore-snapshot");
+  sel.innerHTML = "";
+  for (const s of list) {
+    const opt = document.createElement("option");
+    opt.value = s.name;
+    opt.textContent = s.name + (s.name === list[0].name ? "  (latest)" : "");
+    sel.appendChild(opt);
+  }
+  if (list.length) $("#latest-name").textContent = `(${list[0].name})`;
   $("#store-path").textContent = "Local store: " + st.store_root;
+}
+
+function restoreSource() {
+  return document.querySelector('input[name="restore-src"]:checked').value === "pick"
+    ? $("#restore-snapshot").value : null; // null = latest
+}
+
+function restoreTarget() {
+  return document.querySelector('input[name="restore-dst"]:checked').value;
 }
 
 function renderJob(st) {
@@ -141,17 +161,6 @@ function renderJob(st) {
   if (j.status === "running") {
     if (!pollTimer) pollTimer = setTimeout(() => { pollTimer = null; refresh(); }, 1200);
   }
-}
-
-function selectSnapshot(name) {
-  selected = name;
-  document.querySelectorAll("#snap-table tbody tr").forEach((tr) => {
-    const btn = tr.querySelector("[data-sel]");
-    if (!btn) return;
-    const isSel = btn.getAttribute("data-sel") === name;
-    tr.classList.toggle("selected", isSel);
-    btn.textContent = isSel ? "✓ selected" : "select";
-  });
 }
 
 async function doAction(path, body) {
@@ -297,7 +306,6 @@ $("#btn-cfg-save").onclick = withBusy($("#btn-cfg-save"), async () => {
       body: JSON.stringify(payload),
     });
     $("#cfg-save-result").textContent = "Saved.";
-    selected = null;
     refresh();
   } catch (e) {
     $("#cfg-save-result").textContent = "✘ " + e.message;
@@ -343,30 +351,42 @@ $("#btn-set-save").onclick = withBusy($("#btn-set-save"), async () => {
 $("#btn-status").onclick = withBusy($("#btn-status"), () => doAction("/api/status"), "⏳ Checking…", 60000);
 $("#btn-pull").onclick = withBusy($("#btn-pull"), () => doAction("/api/pull"), "⏳ Job started — see log…");
 $("#btn-verify").onclick = withBusy($("#btn-verify"), () => doAction("/api/verify"), "⏳ Verifying…");
-$("#btn-push-server").onclick = () => {
-  if (!selected) return alert("Select a snapshot first.");
-  if (!confirm(`Restore "${selected}" to the GPORTAL server?\nMake sure the server is STOPPED in the GPORTAL web UI first.`)) return;
-  const btn = $("#btn-push-server");
-  if (busyBtns.has(btn)) return;
-  setBusy(btn, "⏳ Job started — see log…");
-  doAction("/api/push", { snapshot: selected, target: "server" });
-  setTimeout(() => clearBusy(btn), 3000); // job hands off to the log; button frees up
-};
-$("#btn-push-client").onclick = () => {
-  if (!selected) return alert("Select a snapshot first.");
-  if (!configState.client_dir) {
-    return alert("Set the client save folder in ⚙ Settings first.");
-  }
-  const btn = $("#btn-push-client");
-  if (busyBtns.has(btn)) return;
-  setBusy(btn, "⏳ Job started — see log…");
-  doAction("/api/push", { snapshot: selected, target: "client" });
-  setTimeout(() => clearBusy(btn), 3000);
-};
 
-document.addEventListener("click", (e) => {
-  const sel = e.target.getAttribute && e.target.getAttribute("data-sel");
-  if (sel) selectSnapshot(sel);
-});
+/* ── restore flow ────────────────────────────────────────── */
+document.querySelectorAll('input[name="restore-src"]').forEach((r) =>
+  r.addEventListener("change", () => {
+    $("#restore-snapshot").classList.toggle("hidden",
+      document.querySelector('input[name="restore-src"]:checked').value !== "pick");
+  }));
+
+$("#btn-restore").onclick = withBusy($("#btn-restore"), async () => {
+  const snap = restoreSource();
+  const target = restoreTarget();
+  const snapLabel = snap ? `"${snap}"` : "the latest snapshot";
+  const isServer = target === "server";
+
+  if (!isServer && !configState.client_dir) {
+    alert("Set the client save folder in ⚙ Settings first.");
+    return;
+  }
+
+  // confirmation dialogue — mandatory for both restore targets
+  const ok = confirm(
+    `Restore ${snapLabel} → ${isServer ? "the GPORTAL server" : "your local client folder"}?\n\n` +
+    (isServer
+      ? "⚠ Make sure the server is STOPPED in the GPORTAL web UI first.\n" +
+        "Existing save files on the server will be overwritten."
+      : "⚠ Files in your client Saved folder will be overwritten.\n" +
+        `Target: ${configState.client_dir}`)
+  );
+  if (!ok) return;
+
+  setBusy($("#btn-restore"), "⏳ Job started — see log…");
+  try {
+    await doAction("/api/push", { snapshot: snap, target });
+  } finally {
+    setTimeout(() => clearBusy($("#btn-restore")), 3000); // job hands off to the log
+  }
+}, "⬆ Restore");
 
 refresh();

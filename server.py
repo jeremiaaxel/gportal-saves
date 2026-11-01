@@ -288,24 +288,40 @@ def run_push(job_id: str, snap_name: str | None, target: str = "server") -> None
     JOBS[job_id].update(status="done", result={"game": spec.game_id, "snapshot": snap_dir.name, "target": target})
 
 
-def run_verify(job_id: str) -> None:
-    """Offline integrity check: does the latest snapshot contain all critical parts?"""
+def run_verify(job_id: str, snap_name: str | None = None) -> None:
+    """Offline integrity check: does a snapshot contain all critical parts?"""
     spec = games_mod.GAMES["icarus"]
     snaps = store.snapshots(spec.game_id)
     if not snaps:
         JOBS[job_id].update(status="error", error="No snapshots yet.")
         return
-    rec = store.snapshot_record(spec.game_id, snaps[0], spec)
-    log(job_id, f"Verifying latest snapshot {snaps[0].name}…")
+    snap_dir = (store.game_dir(spec.game_id) / "snapshots" / snap_name) if snap_name else snaps[0]
+    if not snap_dir.exists():
+        JOBS[job_id].update(status="error", error=f"Snapshot {snap_name} not found.")
+        return
+    rec = store.snapshot_record(spec.game_id, snap_dir, spec)
+    log(job_id, f"Verifying snapshot {snap_dir.name}…")
     ok = all(i["ok"] for i in rec["checklist"] if i["critical"])
     for item in rec["checklist"]:
         state = "OK " if item["ok"] else ("MISSING" if item["critical"] else "warn")
         log(job_id, f"  [{state}] {item['role']}: {item['files']} files ({item['bytes']/1e6:.1f} MB)")
     log(job_id, "✔ All critical components present." if ok else "✘ Some critical components are MISSING — re-run Backup.")
-    JOBS[job_id].update(
-        status="done",
-        result={"game": spec.game_id, "snapshot": snaps[0].name, "ok": ok, "checklist": rec["checklist"]},
-    )
+    verdict = {
+        "snapshot": snap_dir.name,
+        "ok": ok,
+        "checked": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "checklist": rec["checklist"],
+    }
+    # persist per-snapshot + latest verdict in ONE write (read-modify-write
+    # via set_meta here would clobber the per-snapshot changes)
+    m = store.read_manifest(spec.game_id)
+    snap_rec = m.setdefault("snapshots", {}).setdefault(snap_dir.name, {})
+    snap_rec["files"] = rec["files"]
+    snap_rec["bytes"] = rec["bytes"]
+    snap_rec["verify"] = verdict
+    m["last_verify"] = verdict
+    store.write_manifest(spec.game_id, m)
+    JOBS[job_id].update(status="done", result={"game": spec.game_id, **verdict})
 
 
 def run_status(job_id: str) -> None:
@@ -341,7 +357,7 @@ def start_job(kind: str, **kwargs) -> str:
     elif kind == "push":
         t = threading.Thread(target=run_push, args=(job_id, kwargs.get("snapshot"), kwargs.get("target", "server")), daemon=True)
     elif kind == "verify":
-        t = threading.Thread(target=run_verify, args=(job_id,), daemon=True)
+        t = threading.Thread(target=run_verify, args=(job_id, kwargs.get("snapshot")), daemon=True)
     elif kind == "status":
         t = threading.Thread(target=run_status, args=(job_id,), daemon=True)
     else:
@@ -371,15 +387,30 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, (Path(__file__).parent / "static" / "style.css").read_bytes(), "text/css")
         elif self.path == "/api/state":
             with STATE_LOCK:
-                snaps = {
-                    gid: [
-                        {"name": s.name, "mtime": s.stat().st_mtime}
+                snaps = {}
+                manifests = {}
+                for gid in games_mod.GAMES:
+                    m = store.read_manifest(gid)
+                    manifests[gid] = m
+                    snaps[gid] = [
+                        {
+                            "name": s.name,
+                            "mtime": s.stat().st_mtime,
+                            "files": m.get("snapshots", {}).get(s.name, {}).get("files"),
+                            "bytes": m.get("snapshots", {}).get(s.name, {}).get("bytes"),
+                            "verify": m.get("snapshots", {}).get(s.name, {}).get("verify"),
+                        }
                         for s in store.snapshots(gid)
                     ]
-                    for gid in games_mod.GAMES
-                }
                 jobs = {k: {kk: vv for kk, vv in v.items()} for k, v in JOBS.items()}
-            self._json({"games": list(games_mod.GAMES), "snapshots": snaps, "jobs": jobs, "store_root": str(store.STORE_ROOT), **_public_config()})
+            self._json({
+                "games": list(games_mod.GAMES),
+                "snapshots": snaps,
+                "last_verify": {gid: manifests[gid].get("last_verify") for gid in games_mod.GAMES},
+                "jobs": jobs,
+                "store_root": str(store.STORE_ROOT),
+                **_public_config(),
+            })
         elif self.path.startswith("/api/job/"):
             job_id = self.path.rsplit("/", 1)[1]
             with STATE_LOCK:
@@ -402,7 +433,9 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(ln) or b"{}")
             self._json({"job": start_job("push", snapshot=body.get("snapshot"), target=body.get("target", "server"))})
         elif self.path == "/api/verify":
-            self._json({"job": start_job("verify")})
+            ln = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(ln) or b"{}")
+            self._json({"job": start_job("verify", snapshot=body.get("snapshot"))})
         elif self.path == "/api/status":
             self._json({"job": start_job("status")})
         elif self.path == "/api/config/suggest-client-dir":

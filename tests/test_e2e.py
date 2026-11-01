@@ -160,6 +160,7 @@ def make_fake_tree(tmp: Path) -> dict:
     prospect = json.dumps({"prospectId": "test-prospect", "meta": {"region": "Olympus"}}).encode()
     world_sav = b"W" * 4096
     player = b"P" * 1024
+    accolades = b"A" * 97
     settings = b'{"DayLength": 45}'
     return {
         "Icarus": {
@@ -167,14 +168,14 @@ def make_fake_tree(tmp: Path) -> dict:
                 "Saved": {
                     "PlayerData": {
                         "DedicatedServer": {
+                            "Accolades.json": accolades,
                             "Prospects": {
                                 "TestProspect.json": prospect,
                                 "TestProspect.sav": world_sav,
                             },
-                            "76561198000000000": {"Player.json": player},
                         }
                     },
-                    "Config": {"GameSettings.json": settings},
+                    "Config": {"WindowsServer": {"ServerSettings.ini": settings}},
                 }
             }
         }
@@ -228,7 +229,7 @@ def main() -> int:
     fnames = sorted(f.path for f in files if not f.is_dir)
     print(f"OK walk: {fnames}")
     assert any(p.endswith("TestProspect.json") for p in fnames)
-    assert any("DedicatedServer/76561198000000000" in p for p in fnames)
+    assert any("DedicatedServer/Accolades.json" in p for p in fnames)
 
     # 3. pull into snapshot store
     snap = store.new_snapshot_dir(spec.game_id)

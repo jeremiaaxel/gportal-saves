@@ -8,7 +8,10 @@
 </head>
 <body>
 <header>
-  <h1>GPORTAL Saves</h1>
+  <div class="header-row">
+    <h1>GPORTAL Saves</h1>
+    <button id="btn-settings" class="btn tiny">⚙ Settings</button>
+  </div>
   <div id="conn-banner" class="banner hidden"></div>
 </header>
 <main>
@@ -79,34 +82,63 @@
   </section>
 
   <!-- ══════════ MAIN APP (shown when configured) ══════════ -->
-  <section class="card hidden" id="status-card">
-    <h2>Server connection</h2>
-    <div class="row">
-      <button id="btn-status" class="btn">Check FTP server</button>
-      <button id="btn-pull" class="btn primary">⬇ Backup now (server → local)</button>
-      <button id="btn-verify" class="btn">Verify latest backup</button>
-      <button id="btn-settings" class="btn tiny" style="margin-left:auto">⚙ Settings</button>
-    </div>
-    <div id="server-status" class="muted"></div>
-  </section>
+  <div class="workflows" id="workflows-wrap">
+    <!-- BACKUP column -->
+    <section class="card wf" id="backup-col">
+      <h2 class="wf-title backup">⬇ Backup</h2>
+      <p class="muted">Copy the server's saves into a dated local snapshot.</p>
 
-  <section class="card hidden" id="snapshots-card">
-    <h2>Snapshots</h2>
-    <table id="snap-table">
-      <thead><tr><th>Snapshot</th><th>Files</th><th>Size</th><th>Actions</th></tr></thead>
-      <tbody></tbody>
-    </table>
-    <p class="muted" id="store-path"></p>
-  </section>
+      <div class="wf-actions">
+        <button id="btn-pull" class="btn primary btn-block">⬇ Backup now</button>
+        <button id="btn-status" class="btn btn-block">🔌 Check FTP server</button>
+      </div>
 
-  <section class="card hidden" id="restore-card">
-    <h2>Restore</h2>
-    <div class="row">
-      <button id="btn-push-server" class="btn warn">⬆ Restore selected → server</button>
-      <button id="btn-push-client" class="btn">⬆ Copy selected → client Saved folder</button>
-    </div>
-    <p class="muted">Select a snapshot above first. Stop the server in the GPORTAL web UI before restoring.</p>
-  </section>
+      <div class="wf-sub">
+        <h3>Snapshots <span class="hint">(newest first)</span></h3>
+        <table id="snap-table">
+          <thead><tr><th>Snapshot</th><th>Files</th><th>Size</th><th>Status</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="row">
+          <button id="btn-verify" class="btn">✔ Verify latest</button>
+          <span id="verify-hint" class="muted">Checks every critical save component is present, offline.</span>
+        </div>
+        <p class="muted" id="store-path"></p>
+      </div>
+    </section>
+
+    <!-- RESTORE column -->
+    <section class="card wf" id="restore-col">
+      <h2 class="wf-title restore">⬆ Restore</h2>
+      <p class="muted">Put a snapshot's saves back — to a fresh GPORTAL server, or your own client for the offline test.</p>
+
+      <div class="restore-pick">
+        <h3>Restore from</h3>
+        <label class="radio-row">
+          <input type="radio" name="restore-src" value="latest" checked>
+          <span><b>Latest snapshot</b> <span id="latest-name" class="hint"></span></span>
+        </label>
+        <label class="radio-row">
+          <input type="radio" name="restore-src" value="pick">
+          <span>Pick a snapshot:</span>
+        </label>
+        <select id="restore-snapshot" class="hidden"></select>
+
+        <h3>Restore to</h3>
+        <label class="radio-row">
+          <input type="radio" name="restore-dst" value="server" checked>
+          <span><b>GPORTAL server</b> <span class="hint">— fresh rental, server stopped</span></span>
+        </label>
+        <label class="radio-row">
+          <input type="radio" name="restore-dst" value="client">
+          <span><b>Client Saved folder</b> <span class="hint">— offline proof / offline play</span></span>
+        </label>
+      </div>
+
+      <button id="btn-restore" class="btn warn btn-block">⬆ Restore</button>
+      <p class="muted" id="restore-hint">Server restore requires the server <b>stopped</b> in the GPORTAL web UI.</p>
+    </section>
+  </div>
 
   <section class="card" id="notes-card">
     <h2>ICARUS: making sure you really have everything</h2>

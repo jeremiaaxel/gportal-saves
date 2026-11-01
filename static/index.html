@@ -78,7 +78,8 @@
           <label class="field-label" for="cfg-client-dir">Where your Icarus client reads local saves</label>
           <div class="row">
             <input id="cfg-client-dir" placeholder="…/Icarus/Saved" autocomplete="off" spellcheck="false" style="flex:1">
-            <button id="btn-cfg-suggest" class="btn tiny">Back to detected path</button>
+            <button id="btn-browse-client-dir" class="btn">📁 Browse…</button>
+            <button id="btn-cfg-suggest" class="btn tiny">Use detected path</button>
           </div>
         </div>
       </div>
@@ -179,6 +180,28 @@
     <pre id="log" class="log">Waiting for action…</pre>
   </section>
 </main>
+
+<!-- ══════════ FOLDER BROWSER MODAL ══════════ -->
+<div class="modal-backdrop hidden" id="browser-backdrop">
+  <div class="modal" role="dialog" aria-modal="true" aria-label="Choose folder">
+    <div class="modal-head">
+      <b>Choose the client save folder</b>
+      <button id="btn-browser-close" class="btn tiny">✕</button>
+    </div>
+    <div class="modal-crumbs">
+      <button id="btn-browser-up" class="btn tiny">⬆ Up</button>
+      <code id="browser-path" class="browser-path"></code>
+    </div>
+    <div id="browser-list" class="browser-list"></div>
+    <div id="browser-status" class="muted"></div>
+    <div class="modal-foot">
+      <button id="btn-browser-jump" class="btn tiny">⇢ Jump to detected path</button>
+      <span class="spacer"></span>
+      <button id="btn-browser-cancel" class="btn">Cancel</button>
+      <button id="btn-browser-pick" class="btn primary">Use this folder</button>
+    </div>
+  </div>
+</div>
 <footer id="version-footer" class="muted"></footer>
 <script src="/app.js"></script>
 </body>

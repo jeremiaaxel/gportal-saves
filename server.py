@@ -438,17 +438,160 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"job": start_job("verify", snapshot=body.get("snapshot"))})
         elif self.path == "/api/status":
             self._json({"job": start_job("status")})
+def icarus_client_dir_candidates() -> list[Path]:
+    """Well-known locations of the Icarus client save folder (Steam/Proton)."""
+    return [
+        Path.home() / ".local/share/Steam/steamapps/compatdata/1149460/pfx/drive_c/users/steamuser/AppData/Local/Icarus/Saved",
+        Path.home() / ".steam/steam/steamapps/compatdata/1149460/pfx/drive_c/users/steamuser/AppData/Local/Icarus/Saved",
+        Path.home() / ".var/app/com.valvesoftware.Steam/data/Steam/steamapps/compatdata/1149460/pfx/drive_c/users/steamuser/AppData/Local/Icarus/Saved",
+    ]
+
+
+def _suggested_client_dir() -> str | None:
+    for c in icarus_client_dir_candidates():
+        try:
+            if c.is_dir():
+                return str(c)
+        except OSError:
+            continue
+    return None
+
+
+def list_dir(raw: str) -> dict:
+    """List a local directory for the client-folder browser.
+
+    Bounded: real directories only, symlinked dirs skipped (no traversal
+    out of the tree), entry cap. Hidden entries included — AppData is
+    hidden under Proton prefixes.
+    """
+    if not raw or raw == "/__roots__":
+        roots = {"/", str(Path.home())}
+        for base in ("/run/media", "/media"):
+            try:
+                if Path(base).is_dir():
+                    roots.add(base)
+            except OSError:
+                pass
+        return {"ok": True, "path": "", "is_root_listing": True,
+                "entries": sorted(roots), "parent": None,
+                "suggestion": _suggested_client_dir()}
+
+    p = Path(raw).expanduser()
+    try:
+        rp = p.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return {"ok": False, "error": f"Path not found: {raw}"}
+    if not rp.is_dir():
+        return {"ok": False, "error": f"Not a directory: {raw}"}
+    try:
+        children = list(rp.iterdir())[:2000]
+    except PermissionError:
+        return {"ok": False, "error": f"Permission denied: {raw}"}
+    dirs: list[str] = []
+    files = 0
+    for c in children:
+        try:
+            # symlinked dirs skipped: browser navigates real dirs only
+            if c.is_dir() and not c.is_symlink():
+                dirs.append(c.name)
+            elif c.is_file():
+                files += 1
+        except OSError:
+            continue
+    suggestion = _suggested_client_dir()
+    hit = False
+    if suggestion:
+        try:
+            hit = rp == Path(suggestion).resolve()
+        except OSError:
+            hit = False
+    return {"ok": True, "path": str(rp), "entries": sorted(dirs), "files": files,
+            "parent": str(rp.parent) if rp.parent != rp else None,
+            "suggestion": suggestion, "suggestion_here": hit}
+
+
+class Handler(BaseHTTPRequestHandler):
+    def _send(self, code: int, body: bytes, ctype: str = "application/json") -> None:
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _json(self, obj, code: int = 200) -> None:
+        self._send(code, json.dumps(obj).encode(), "application/json")
+
+    def do_GET(self):
+        if self.path == "/":
+            self._send(200, (Path(__file__).parent / "static" / "index.html").read_bytes(), "text/html; charset=utf-8")
+        elif self.path == "/app.js":
+            self._send(200, (Path(__file__).parent / "static" / "app.js").read_bytes(), "application/javascript")
+        elif self.path == "/style.css":
+            self._send(200, (Path(__file__).parent / "static" / "style.css").read_bytes(), "text/css")
+        elif self.path == "/api/state":
+            with STATE_LOCK:
+                snaps = {}
+                manifests = {}
+                for gid in games_mod.GAMES:
+                    m = store.read_manifest(gid)
+                    manifests[gid] = m
+                    snaps[gid] = [
+                        {
+                            "name": s.name,
+                            "mtime": s.stat().st_mtime,
+                            "files": m.get("snapshots", {}).get(s.name, {}).get("files"),
+                            "bytes": m.get("snapshots", {}).get(s.name, {}).get("bytes"),
+                            "verify": m.get("snapshots", {}).get(s.name, {}).get("verify"),
+                        }
+                        for s in store.snapshots(gid)
+                    ]
+                jobs = {k: {kk: vv for kk, vv in v.items()} for k, v in JOBS.items()}
+            self._json({
+                "games": list(games_mod.GAMES),
+                "snapshots": snaps,
+                "last_verify": {gid: manifests[gid].get("last_verify") for gid in games_mod.GAMES},
+                "jobs": jobs,
+                "store_root": str(store.STORE_ROOT),
+                **_public_config(),
+            })
+        elif self.path.startswith("/api/job/"):
+            job_id = self.path.rsplit("/", 1)[1]
+            with STATE_LOCK:
+                job = JOBS.get(job_id)
+                self._json(job or {"error": "unknown job"}, 200 if job else 404)
+        else:
+            self._json({"error": "not found"}, 404)
+
+    def do_POST(self):
+        if self.path == "/api/pull":
+            if not get_creds().get("host"):
+                self._json({"error": "Not configured yet — finish the setup wizard first."}, 400)
+                return
+            self._json({"job": start_job("pull")})
+        elif self.path == "/api/push":
+            if not get_creds().get("host"):
+                self._json({"error": "Not configured yet — finish the setup wizard first."}, 400)
+                return
+            ln = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(ln) or b"{}")
+            self._json({"job": start_job("push", snapshot=body.get("snapshot"), target=body.get("target", "server"))})
+        elif self.path == "/api/verify":
+            ln = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(ln) or b"{}")
+            self._json({"job": start_job("verify", snapshot=body.get("snapshot"))})
+        elif self.path == "/api/status":
+            self._json({"job": start_job("status")})
         elif self.path == "/api/config/suggest-client-dir":
-            candidates = [
-                Path.home() / ".local/share/Steam/steamapps/compatdata/1149460/pfx/drive_c/users/steamuser/AppData/Local/Icarus/Saved",
-                Path.home() / ".steam/steam/steamapps/compatdata/1149460/pfx/drive_c/users/steamuser/AppData/Local/Icarus/Saved",
-                Path.home() / ".var/app/com.valvesoftware.Steam/data/Steam/steamapps/compatdata/1149460/pfx/drive_c/users/steamuser/AppData/Local/Icarus/Saved",
-            ]
-            for c in candidates:
-                if c.is_dir():
-                    self._json({"found": True, "path": str(c), "why": "Detected Icarus (Proton/Steam) client save folder."})
-                    return
-            self._json({"found": False, "candidates": [str(c) for c in candidates]})
+            sug = _suggested_client_dir()
+            if sug:
+                self._json({"found": True, "path": sug, "why": "Detected Icarus (Proton/Steam) client save folder."})
+            else:
+                self._json({"found": False, "candidates": [str(c) for c in icarus_client_dir_candidates()]})
+        elif self.path == "/api/fs/list":
+            ln = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(ln) or b"{}")
+            self._json(list_dir(body.get("path", "")))
         elif self.path == "/api/config/parse-url":
             ln = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(ln) or b"{}")

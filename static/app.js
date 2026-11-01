@@ -267,6 +267,112 @@ $("#btn-use-custom").onclick = () => {
 
 $("#btn-cfg-suggest").onclick = () => probeClientDir();
 
+/* ── folder browser modal ────────────────────────────────── */
+const browserState = { cwd: "", suggestion: null };
+
+async function fsList(path) {
+  const r = await api("/api/fs/list", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path }),
+  });
+  if (!r.ok) throw new Error(r.error || "Listing failed");
+  return r;
+}
+
+function renderBrowser(r) {
+  browserState.cwd = r.path;
+  browserState.suggestion = r.suggestion;
+  $("#browser-path").textContent = r.path || "Computer";
+  const list = $("#browser-list");
+  list.innerHTML = "";
+  if (r.is_root_listing) {
+    for (const entry of r.entries) {
+      list.appendChild(browserRow(entry, entry, "🏠", false));
+    }
+  } else {
+    for (const name of r.entries) {
+      list.appendChild(browserRow(name, joinPath(r.path, name), "📁", false));
+    }
+    if (!r.entries.length) {
+      const d = document.createElement("div");
+      d.className = "muted";
+      d.style.padding = "8px";
+      d.textContent = "No subfolders" + (r.files ? ` — ${r.files} file(s) here` : "");
+      list.appendChild(d);
+    }
+  }
+  $("#btn-browser-up").disabled = !r.parent;
+  $("#btn-browser-jump").disabled = !r.suggestion;
+  $("#btn-browser-jump").textContent = r.suggestion_here ? "✔ This is the detected path" : "⇢ Jump to detected path";
+  // pick button semantic: roots need a navigation first
+  $("#btn-browser-pick").disabled = r.is_root_listing;
+  $("#btn-browser-pick").textContent = r.suggestion_here ? "✔ Use this folder (detected save path)" : "Use this folder";
+}
+
+function joinPath(dir, name) {
+  return dir.endsWith("/") ? dir + name : dir + "/" + name;
+}
+
+function browserRow(label, target, icon, muted) {
+  const el = document.createElement("button");
+  el.className = "browser-row" + (muted ? " muted-row" : "");
+  el.innerHTML = `<span class="bicon">${icon}</span><span class="bname"></span>`;
+  el.querySelector(".bname").textContent = label;
+  el.onclick = () => openBrowserAt(target);
+  return el;
+}
+
+async function openBrowserAt(path) {
+  const list = $("#browser-list");
+  list.innerHTML = `<div class="muted" style="padding:8px">Loading…</div>`;
+  try {
+    renderBrowser(await fsList(path));
+  } catch (e) {
+    list.innerHTML = "";
+    const d = document.createElement("div");
+    d.className = "err";
+    d.style.padding = "8px";
+    d.textContent = "✘ " + e.message;
+    list.appendChild(d);
+  }
+}
+
+function openBrowser() {
+  $("#browser-backdrop").classList.remove("hidden");
+  // start from: current field value > detected suggestion > roots
+  const start = $("#cfg-client-dir").value.trim() || browserState.suggestion || "";
+  openBrowserAt(start);
+}
+
+function closeBrowser() {
+  $("#browser-backdrop").classList.add("hidden");
+}
+
+$("#btn-browse-client-dir").onclick = openBrowser;
+$("#btn-browser-close").onclick = closeBrowser;
+$("#btn-browser-cancel").onclick = closeBrowser;
+$("#btn-browser-up").onclick = () => {
+  if (browserState.cwd) openBrowserAt(browserState.cwd.replace(/[^/]+\/?$/, "") || "");
+};
+$("#btn-browser-jump").onclick = () => {
+  if (browserState.suggestion) openBrowserAt(browserState.suggestion);
+};
+$("#btn-browser-pick").onclick = () => {
+  if (!browserState.cwd) return;
+  $("#cfg-client-dir").value = browserState.cwd;
+  closeBrowser();
+  $("#cfg-parse-result").textContent = "✔ Client save folder selected.";
+  $("#cfg-parse-result").className = "ok";
+};
+// close on backdrop click / Escape
+$("#browser-backdrop").addEventListener("click", (e) => {
+  if (e.target === $("#browser-backdrop")) closeBrowser();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("#browser-backdrop").classList.contains("hidden")) closeBrowser();
+});
+
 async function testConfig(payload, resultEl) {
   resultEl.textContent = "Testing…";
   resultEl.className = "test-result";

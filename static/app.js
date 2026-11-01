@@ -71,7 +71,10 @@ async function refresh() {
 function renderState(st) {
   const configured = !!st.configured;
   configState = st;
-  $("#setup-card").classList.toggle("hidden", configured && setupMode === "first-run");
+  // setup card visible when: not configured (first-run), or user opened
+  // settings and hasn't closed/saved it
+  const setupOpen = !configured || setupMode === "settings-open";
+  $("#setup-card").classList.toggle("hidden", !setupOpen);
   $("#workflows-wrap").classList.toggle("hidden", !configured);
 
   if (configured) {
@@ -174,7 +177,9 @@ async function doAction(path, body) {
 }
 
 /* ── setup wizard + settings (one surface, two modes) ────── */
-let setupMode = "first-run"; // "first-run" | "settings"
+let setupMode = "first-run"; // "first-run" (wizard, unconfigured) |
+                             // "settings-open" (user clicked ⚙) |
+                             // "closed" (settings saved/closed)
 
 function readWizard() {
   return {
@@ -424,7 +429,7 @@ $("#btn-cfg-save").onclick = withBusy($("#btn-cfg-save"), async () => {
     $("#cfg-save-result").textContent = "Host and user are required.";
     return;
   }
-  const editingStored = setupMode === "settings" && configState.has_password;
+  const editingStored = setupMode === "settings-open" && configState.has_password;
   if (!payload.password && !editingStored) {
     $("#cfg-save-result").textContent = "Password is required (or leave blank only when a password is already stored).";
     return;
@@ -438,9 +443,9 @@ $("#btn-cfg-save").onclick = withBusy($("#btn-cfg-save"), async () => {
     $("#cfg-save-result").textContent = "Saved.";
     $("#cfg-pass").value = "";
     $("#cfg-pass").placeholder = "stored — leave blank to keep";
-    if (setupMode === "settings") {
+    if (setupMode === "settings-open") {
+      setupMode = "closed";
       $("#setup-card").classList.add("hidden");
-      setSetupMode("first-run"); // next open re-reads fresh state
     }
     refresh();
   } catch (e) {
@@ -449,8 +454,12 @@ $("#btn-cfg-save").onclick = withBusy($("#btn-cfg-save"), async () => {
 }, "⏳ Saving…");
 
 function setSetupMode(mode) {
-  setupMode = mode;
+  // mode: "first-run" | "settings"
+  setupMode = mode === "settings" ? "settings-open" : "first-run";
   const isSettings = mode === "settings";
+  // NOTE: does not touch #setup-card visibility — renderState enforces it
+  // from setupMode on its next poll (~1.2s), and the button handlers below
+  // flip it immediately for responsiveness
   $("#setup-title").textContent = isSettings ? "⚙ Settings" : "One-time setup";
   $("#setup-subtitle").textContent = isSettings
     ? "Same wizard as first run — edit anything and Save. Blank password keeps the stored one."
@@ -474,14 +483,18 @@ function setSetupMode(mode) {
     } else {
       probeClientDir();
     }
-    $("#setup-card").scrollIntoView({ behavior: "smooth", block: "start" });
   } else {
     probeClientDir(); // first-run: suggestion-first
   }
 }
 
-$("#btn-settings").onclick = () => setSetupMode("settings");
+$("#btn-settings").onclick = () => {
+  setSetupMode("settings");
+  $("#setup-card").classList.remove("hidden");
+  $("#setup-card").scrollIntoView({ behavior: "smooth", block: "start" });
+};
 $("#btn-setup-close").onclick = () => {
+  setupMode = "closed";
   $("#setup-card").classList.add("hidden");
 };
 

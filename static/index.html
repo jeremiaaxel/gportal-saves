@@ -16,38 +16,59 @@
   <!-- ══════════ SETUP WIZARD (shown until configured) ══════════ -->
   <section class="card setup" id="setup-card">
     <h2>One-time setup</h2>
-    <p class="muted">Takes ~2 minutes. Everything stays on this computer.</p>
+    <p class="muted">Takes ~2 minutes. Credentials go into your system keyring — never into a file in this project.</p>
 
     <div class="wizard-steps">
       <div class="wstep" id="wstep-1">
-        <h3>Step 1 · Get your FTP details from GPORTAL <span class="wcheck" id="ws1-check"></span></h3>
-        <ol>
-          <li>Open <b>g-portal.com</b> → log in → <b>My servers</b> → click your Icarus server.</li>
-          <li>In the left menu click <b>Status</b>.</li>
-          <li>Find the <b>FTP</b> block: host (like <code>ch.g-portal.com</code>), login and password.</li>
-        </ol>
+        <h3>Step 1 · Connect to your server <span class="wcheck" id="ws1-check"></span></h3>
+
+        <label class="field-label" for="cfg-url">Paste FTP login line <span class="hint">(optional — fills host, user, password, port automatically)</span></label>
         <div class="row">
-          <input id="cfg-host" placeholder="FTP host, e.g. ch.g-portal.com" autocomplete="off" spellcheck="false">
-          <input id="cfg-port" placeholder="21" size="4" autocomplete="off">
-          <input id="cfg-user" placeholder="FTP user" autocomplete="off" spellcheck="false">
-          <input id="cfg-pass" placeholder="FTP password" type="password" autocomplete="off">
+          <input id="cfg-url" placeholder="ftp://user:password@ch.g-portal.com:21" autocomplete="off" spellcheck="false" style="flex:1">
+          <button id="btn-cfg-parse" class="btn">Parse</button>
         </div>
-        <div class="row">
-          <button id="btn-cfg-test" class="btn">Test connection</button>
+        <div id="cfg-parse-result" class="muted"></div>
+
+        <div class="divider"><span>or fill in manually</span></div>
+
+        <label class="field-label" for="cfg-host">FTP host <span class="hint">— GPORTAL → My servers → your server → Status → FTP</span></label>
+        <input id="cfg-host" placeholder="e.g. ch.g-portal.com" autocomplete="off" spellcheck="false">
+
+        <div class="grid2">
+          <div>
+            <label class="field-label" for="cfg-user">FTP user</label>
+            <input id="cfg-user" placeholder="FTP user" autocomplete="off" spellcheck="false">
+          </div>
+          <div>
+            <label class="field-label" for="cfg-pass">FTP password</label>
+            <input id="cfg-pass" placeholder="FTP password" type="password" autocomplete="off">
+          </div>
+        </div>
+
+        <div class="grid2">
+          <div>
+            <label class="field-label" for="cfg-port">Port</label>
+            <input id="cfg-port" placeholder="21" autocomplete="off">
+          </div>
+          <div>
+            <button id="btn-cfg-test" class="btn">Test connection</button>
+          </div>
         </div>
         <div id="cfg-test-result" class="muted"></div>
       </div>
 
       <div class="wstep" id="wstep-2">
-        <h3>Step 2 · Where your Icarus client saves live (optional, for the offline proof)</h3>
-        <p class="muted">Only needed on the machine you play Icarus on. You can set it later in Settings.</p>
+        <h3>Step 2 · Client save folder <span class="hint">(optional — for the offline verification)</span></h3>
+        <label class="field-label" for="cfg-client-dir">Where your Icarus client reads local saves <span class="hint">— auto-filled if found</span></label>
         <div class="row">
-          <input id="cfg-client-dir" placeholder="e.g. C:/Users/YOU/AppData/Local/Icarus/Saved" autocomplete="off" spellcheck="false" style="flex:1">
+          <input id="cfg-client-dir" placeholder="…/Icarus/Saved" autocomplete="off" spellcheck="false" style="flex:1">
+          <button id="btn-cfg-suggest" class="btn tiny">Use detected path</button>
         </div>
       </div>
 
       <div class="wstep">
         <h3>Step 3 · Save</h3>
+        <p class="muted" id="storage-note"></p>
         <div class="row">
           <button id="btn-cfg-save" class="btn primary">Save configuration</button>
           <span id="cfg-save-result" class="muted"></span>
@@ -94,7 +115,7 @@
       <li><b>The real proof — no re-renting needed.</b> The Icarus client reads the same folder layout as the server, so:
         <ul>
           <li>use <b>Copy → client Saved folder</b> (needs the Step-2 path), or manually copy
-              <code>Prospects/</code> → <code>%LOCALAPPDATA%\Icarus\Saved\Prospects\</code> and the SteamID folder →
+              <code>Prospects/</code> → <code>%LOCALAPPDATA%\Icarus\Saved\</code> and the SteamID folder →
               <code>%LOCALAPPDATA%\Icarus\Saved\PlayerData\&lt;your steamid&gt;\</code>;</li>
           <li>launch Icarus <b>single-player</b> — if the prospect appears in your load list, the backup is complete and playable;</li>
           <li>remove the copies afterwards (Steam Cloud / OneDrive can fight manual saves).</li>
@@ -109,15 +130,32 @@
 
   <section class="card hidden" id="settings-card">
     <h2>⚙ Settings</h2>
-    <div class="row">
-      <input id="set-host" placeholder="FTP host" autocomplete="off" spellcheck="false">
-      <input id="set-port" placeholder="21" size="4" autocomplete="off">
-      <input id="set-user" placeholder="FTP user" autocomplete="off" spellcheck="false">
-      <input id="set-pass" placeholder="password (leave blank to keep)" type="password" autocomplete="off">
+
+    <label class="field-label" for="set-host">FTP host</label>
+    <input id="set-host" placeholder="e.g. ch.g-portal.com" autocomplete="off" spellcheck="false">
+
+    <div class="grid2">
+      <div>
+        <label class="field-label" for="set-user">FTP user</label>
+        <input id="set-user" placeholder="FTP user" autocomplete="off" spellcheck="false">
+      </div>
+      <div>
+        <label class="field-label" for="set-pass">FTP password <span class="hint">(leave blank to keep stored)</span></label>
+        <input id="set-pass" placeholder="••••••••" type="password" autocomplete="off">
+      </div>
     </div>
-    <div class="row">
-      <input id="set-client-dir" placeholder="client Icarus Saved folder (optional)" autocomplete="off" spellcheck="false" style="flex:1">
+
+    <div class="grid2">
+      <div>
+        <label class="field-label" for="set-port">Port</label>
+        <input id="set-port" placeholder="21" autocomplete="off">
+      </div>
+      <div>
+        <label class="field-label" for="set-client-dir">Client save folder <span class="hint">(optional)</span></label>
+        <input id="set-client-dir" placeholder="…/Icarus/Saved" autocomplete="off" spellcheck="false">
+      </div>
     </div>
+
     <div class="row">
       <button id="btn-set-save" class="btn primary">Save</button>
       <button id="btn-set-test" class="btn">Test connection</button>

@@ -48,8 +48,26 @@ tr.selected td { background: rgba(77, 163, 255, .12); }
 input {
   background: #0b0d12; border: 1px solid var(--border); color: var(--text);
   border-radius: 7px; padding: 9px 11px; font-size: 14px; min-width: 180px;
+  width: 100%;
 }
 input:focus { outline: none; border-color: var(--accent); }
+.field-label {
+  display: block; margin: 12px 0 5px; font-size: 13px; font-weight: 600;
+  color: var(--text);
+}
+.field-label .hint { color: var(--muted); font-weight: 400; font-size: 12px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: end; }
+.grid2 .btn { margin-bottom: 1px; }
+.divider {
+  display: flex; align-items: center; gap: 10px; margin: 16px 0 4px;
+  color: var(--muted); font-size: 12px;
+}
+.divider::before, .divider::after {
+  content: ""; flex: 1; height: 1px; background: var(--border);
+}
+@media (max-width: 640px) {
+  .grid2 { grid-template-columns: 1fr; }
+}
 .hidden { display: none; }
 .banner {
   background: rgba(224, 93, 93, .15); border: 1px solid var(--err);

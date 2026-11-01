@@ -44,8 +44,18 @@ function renderState(st) {
       $("#set-client-dir").value = st.client_dir || "";
       $("#set-pass").placeholder = st.has_password ? "password stored — leave blank to keep" : "password";
     }
+    $("#storage-note").textContent = storageNote(st.storage);
     renderSnapshots(st);
     renderJob(st);
+  }
+}
+
+function storageNote(kind) {
+  switch (kind) {
+    case "keyring": return "Credentials will be stored in your system keyring (encrypted).";
+    case "file": return "No keyring found — credentials will be stored in ~/.local/state/gportal-saves/ (chmod 600).";
+    case "env": return "Config comes from environment variables this session.";
+    default: return "";
   }
 }
 
@@ -128,6 +138,54 @@ function readWizard() {
     client_dir: $("#cfg-client-dir").value.trim(),
   };
 }
+
+function applyParsed(p) {
+  const el = $("#cfg-parse-result");
+  if (!p.ok) {
+    el.textContent = "✘ " + (p.error || "Could not parse that.");
+    el.className = "err";
+    return;
+  }
+  if (p.host) $("#cfg-host").value = p.host;
+  if (p.user) $("#cfg-user").value = p.user;
+  if (p.password) $("#cfg-pass").value = p.password;
+  if (p.port) $("#cfg-port").value = p.port;
+  el.textContent = (p.warning ? "⚠ " + p.warning : "✔ Filled the fields below from your paste.") +
+    (p.password ? "" : " (No password in the URL — enter it manually.)");
+  el.className = p.warning ? "warn" : "ok";
+}
+
+$("#btn-cfg-parse").onclick = async () => {
+  const url = $("#cfg-url").value;
+  if (!url.trim()) { $("#cfg-parse-result").textContent = "Paste an FTP line first."; return; }
+  try {
+    const p = await api("/api/config/parse-url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+    applyParsed(p);
+  } catch (e) {
+    $("#cfg-parse-result").textContent = "✘ " + e.message;
+    $("#cfg-parse-result").className = "err";
+  }
+};
+
+$("#btn-cfg-suggest").onclick = async () => {
+  try {
+    const r = await api("/api/config/suggest-client-dir");
+    if (r.found) {
+      $("#cfg-client-dir").value = r.path;
+      $("#cfg-parse-result").textContent = r.why;
+      $("#cfg-parse-result").className = "ok";
+    } else {
+      $("#cfg-parse-result").textContent = "No Icarus client folder found — enter the path manually.";
+      $("#cfg-parse-result").className = "warn";
+    }
+  } catch (e) {
+    $("#cfg-parse-result").textContent = "✘ " + e.message;
+  }
+};
 
 async function testConfig(payload, resultEl) {
   resultEl.textContent = "Testing…";
@@ -229,7 +287,6 @@ $("#btn-set-save").onclick = async () => {
     $("#set-result").textContent = "✘ " + e.message;
   }
 };
-
 /* ── main actions ────────────────────────────────────────── */
 $("#btn-status").onclick = () => doAction("/api/status");
 $("#btn-pull").onclick = () => doAction("/api/pull");

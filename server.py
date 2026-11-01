@@ -28,10 +28,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ftp_ops
 import games as games_mod
 import store
+import config_store
 
 STATE_LOCK = threading.Lock()
 JOBS: dict[str, dict] = {}  # job_id -> {status, log, result, error, started, ended}
-CONFIG_PATH = Path(__file__).parent / "config.json"
 
 
 def new_job(kind: str) -> str:
@@ -53,36 +53,55 @@ def log(job_id: str, msg: str) -> None:
 
 
 def get_creds() -> dict:
-    """Read FTP credentials from config.json (UI-managed) or env fallback."""
-    if CONFIG_PATH.exists():
-        try:
-            return json.loads(CONFIG_PATH.read_text())
-        except Exception:
-            pass
-    return {
-        "host": os.environ.get("GPORTAL_FTP_HOST", ""),
-        "port": int(os.environ.get("GPORTAL_FTP_PORT", "21")),
-        "user": os.environ.get("GPORTAL_FTP_USER", ""),
-        "password": os.environ.get("GPORTAL_FTP_PASSWORD", ""),
-        "client_dir": os.environ.get("GPORTAL_CLIENT_DIR", ""),
-    }
+    """Read config via config_store (keyring > XDG state > env)."""
+    return config_store.load()
 
 
-def save_creds(creds: dict) -> None:
-    """Persist config.json with owner-only permissions."""
-    p = CONFIG_PATH
-    new = not p.exists()
-    p.write_text(json.dumps(creds, indent=2))
-    try:
-        os.chmod(p, 0o600)
-    except OSError:
-        pass
-    if new:
-        log_to_all(f"Config saved to {p}")
+def save_creds(creds: dict) -> str:
+    """Persist config; returns backend used."""
+    backend = config_store.save(creds)
+    log_to_all(f"Config saved via {backend}")
+    return backend
 
 
 def log_to_all(msg: str) -> None:
     print(msg)
+
+
+def parse_ftp_url(raw: str) -> dict:
+    """Parse an FTP URL into connection fields.
+
+    Accepts: ftp://user:pass@host:port  |  ftp://user@host  |  host[:port] —
+    also tolerates sftp:// (parsed but flagged), URL-encoded chars, and a
+    trailing path (ignored). GPORTAL's Status page shows credentials that can
+    be concatenated into exactly this shape.
+    """
+    from urllib.parse import unquote, urlparse
+
+    s = (raw or "").strip()
+    if not s:
+        return {"ok": False, "error": "Nothing pasted."}
+    if "://" not in s:
+        s = "ftp://" + s  # allow bare host:port
+    try:
+        u = urlparse(s)
+    except Exception as e:
+        return {"ok": False, "error": f"Could not parse: {e}"}
+    scheme = (u.scheme or "ftp").lower()
+    host = u.hostname or ""
+    if not host:
+        return {"ok": False, "error": "No host found in that URL."}
+    out: dict = {"ok": True, "scheme": scheme, "host": host}
+    if scheme == "sftp":
+        out["warning"] = ("sftp:// detected — this tool speaks FTP/FTPS; "
+                          "GPORTAL uses plain FTP, so keep the port but expect the scheme to differ.")
+    if u.port:
+        out["port"] = u.port
+    if u.username:
+        out["user"] = unquote(u.username)
+    if u.password:
+        out["password"] = unquote(u.password)
+    return out
 
 
 def _public_config() -> dict:
@@ -94,6 +113,7 @@ def _public_config() -> dict:
         "user": c.get("user", ""),
         "has_password": bool(c.get("password")),
         "client_dir": c.get("client_dir", ""),
+        "storage": config_store.storage_kind(),
     }
 
 
@@ -130,7 +150,7 @@ def validate_creds(host: str, port: int, user: str, password: str) -> dict:
 def run_pull(job_id: str) -> None:
     creds = get_creds()
     if not creds.get("host"):
-        JOBS[job_id].update(status="error", error="No FTP credentials configured (config.json).")
+        JOBS[job_id].update(status="error", error="No FTP credentials configured — finish the setup wizard first.")
         return
     log(job_id, f"Connecting to FTP {creds['host']}:{creds.get('port', 21)}…")
     ftp = ftp_ops.connect(creds["host"], creds["port"], creds["user"], creds["password"])
@@ -229,7 +249,7 @@ def run_push(job_id: str, snap_name: str | None, target: str = "server") -> None
     else:  # client
         dest = Path(get_creds().get("client_dir", "")) if get_creds().get("client_dir") else None
         if not dest:
-            JOBS[job_id].update(status="error", error="Set client_dir in config.json (e.g. your Icarus Saved folder).")
+            JOBS[job_id].update(status="error", error="Set the client save folder in ⚙ Settings first (it's where your Icarus client keeps local saves).")
             return
         log(job_id, f"Copying snapshot {snap_dir.name} to {dest}…")
         copied = 0
@@ -364,6 +384,21 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"job": start_job("verify")})
         elif self.path == "/api/status":
             self._json({"job": start_job("status")})
+        elif self.path == "/api/config/suggest-client-dir":
+            candidates = [
+                Path.home() / ".local/share/Steam/steamapps/compatdata/1149460/pfx/drive_c/users/steamuser/AppData/Local/Icarus/Saved",
+                Path.home() / ".steam/steam/steamapps/compatdata/1149460/pfx/drive_c/users/steamuser/AppData/Local/Icarus/Saved",
+                Path.home() / ".var/app/com.valvesoftware.Steam/data/Steam/steamapps/compatdata/1149460/pfx/drive_c/users/steamuser/AppData/Local/Icarus/Saved",
+            ]
+            for c in candidates:
+                if c.is_dir():
+                    self._json({"found": True, "path": str(c), "why": "Detected Icarus (Proton/Steam) client save folder."})
+                    return
+            self._json({"found": False, "candidates": [str(c) for c in candidates]})
+        elif self.path == "/api/config/parse-url":
+            ln = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(ln) or b"{}")
+            self._json(parse_ftp_url(body.get("url", "")))
         elif self.path == "/api/config/test":
             ln = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(ln) or b"{}")

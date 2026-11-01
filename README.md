@@ -14,11 +14,17 @@ term ends. This tool turns that into: click **Backup now**, done.
 python3 server.py --open        # serves http://127.0.0.1:8777
 ```
 
-1. In the GPORTAL web UI → *My servers* → your server → **Status**: note the
-   FTP host, user, password.
-2. `cp config.example.json config.json` and fill them in.
-3. Click **Check FTP server** — it should detect ICARUS and list save sizes.
-4. Click **⬇ Backup now**.
+The web UI walks you through a one-time setup wizard:
+
+1. Paste your FTP login line (`ftp://user:pass@host:port` — from GPORTAL →
+   *My servers* → your server → **Status** → FTP) or fill the labeled fields,
+   then **Test connection** — it detects ICARUS and probes every save path live.
+2. Optionally point it at your Icarus client save folder (auto-detected for
+   Steam/Proton installs) to enable the offline end-to-end check.
+3. **Save** — credentials go into your system keyring (KDE Wallet /
+   gnome-keyring via the Secret Service API); if no keyring exists they fall
+   back to `~/.local/state/gportal-saves/config.json` with owner-only
+   permissions. Nothing is written inside the project.
 
 Everything is stdlib Python — no pip installs.
 
@@ -64,8 +70,10 @@ checklist come free.
 ## Security notes
 
 - The web UI binds to `127.0.0.1` only.
-- FTP credentials live in `config.json` next to the script (chmod 600 it);
-  they're also accepted via `GPORTAL_FTP_*` env vars instead.
+- Credentials live in your system keyring (Secret Service API — KDE Wallet,
+  gnome-keyring), falling back to `~/.local/state/gportal-saves/config.json`
+  (chmod 600) when no keyring is available. Nothing secret is stored in the
+  project directory.
 - The app never talks to the internet except the FTP connection you
   configured.
 

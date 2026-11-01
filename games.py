@@ -90,6 +90,7 @@ ICARUS = GameSpec(
     game_id="icarus",
     title="ICARUS",
     signatures=(
+        "Icarus/Config/Saved/PlayerData/DedicatedServer/Prospects",
         "Icarus/Config/Saved/PlayerData/DedicatedServer",
         "Icarus/Config/Saved/PlayerData",
     ),
@@ -97,21 +98,26 @@ ICARUS = GameSpec(
     paths=(
         PathSpec(
             rel_path="PlayerData/DedicatedServer/Prospects",
-            role="World saves (prospect JSON + world state)",
+            role="World saves (prospect JSON + auto-backups)",
         ),
         PathSpec(
             rel_path="PlayerData/DedicatedServer",
-            role="Player progression (per-SteamID folders: talents, bestiary, currency)",
+            role="Player/global progression files (Accolades.json etc.)",
             critical=False,
         ),
-        PathSpec(rel_path="Config", role="Server settings (GameSettings.json etc.)", critical=False),
+        PathSpec(
+            rel_path="Config/WindowsServer",
+            role="Server settings (ServerSettings.ini, Engine.ini)",
+            critical=False,
+        ),
     ),
-    required_patterns=("*",),
+    required_patterns=("*.json",),
     notes=(
-        "Prospects/ holds one .json per prospect plus its world save data.",
-        "Player progression lives in per-SteamID subfolders of PlayerData/DedicatedServer.",
+        "Prospects/ holds one .json per prospect plus .backup* rolling copies.",
+        "Player/global progression (accolades) lives directly in PlayerData/DedicatedServer.",
+        "Per-SteamID player folders appear on some hosts; they're captured when present.",
         "To play offline later: copy Prospects -> %LOCALAPPDATA%\\Icarus\\Saved\\Prospects "
-        "and the SteamID folder -> %LOCALAPPDATA%\\Icarus\\Saved\\PlayerData\\<your steamid>. "
+        "and any SteamID folder -> %LOCALAPPDATA%\\Icarus\\Saved\\PlayerData\\<your steamid>. "
         "The client is free, so this is the end-to-end test that needs no rented server.",
         "Known quirk: first reconnect after a save move may fail with Error 65 — just retry.",
     ),

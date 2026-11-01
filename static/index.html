@@ -17,15 +17,16 @@
   <section class="card setup" id="setup-card">
     <h2>One-time setup</h2>
     <p class="muted">Takes ~2 minutes. Credentials go into your system keyring — never into a file in this project.</p>
+    <p class="muted warn-text">Stale server running from an older version? Restart it (<code>Ctrl+C</code>, run again) — the footer shows the running version.</p>
 
     <div class="wizard-steps">
       <div class="wstep" id="wstep-1">
         <h3>Step 1 · Connect to your server <span class="wcheck" id="ws1-check"></span></h3>
 
-        <label class="field-label" for="cfg-url">Paste FTP login line <span class="hint">(optional — fills host, user, password, port automatically)</span></label>
+        <label class="field-label" for="cfg-url">Paste FTP login line <span class="hint">(fills host, user, password, port automatically as you paste)</span></label>
         <div class="row">
           <input id="cfg-url" placeholder="ftp://user:password@ch.g-portal.com:21" autocomplete="off" spellcheck="false" style="flex:1">
-          <button id="btn-cfg-parse" class="btn">Parse</button>
+          <button id="btn-cfg-parse" class="btn tiny">Re-parse</button>
         </div>
         <div id="cfg-parse-result" class="muted"></div>
 
@@ -168,6 +169,7 @@
     <pre id="log" class="log">Waiting for action…</pre>
   </section>
 </main>
+<footer id="version-footer" class="muted"></footer>
 <script src="/app.js"></script>
 </body>
 </html>

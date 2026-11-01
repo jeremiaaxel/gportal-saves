@@ -68,6 +68,10 @@ input:focus { outline: none; border-color: var(--accent); }
 @media (max-width: 640px) {
   .grid2 { grid-template-columns: 1fr; }
 }
+footer {
+  padding: 18px 0 8px; font-size: 12px; text-align: center; opacity: .7;
+}
+.warn-text { color: var(--warn); }
 .hidden { display: none; }
 .banner {
   background: rgba(224, 93, 93, .15); border: 1px solid var(--err);

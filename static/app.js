@@ -48,6 +48,7 @@ function renderState(st) {
     renderSnapshots(st);
     renderJob(st);
   }
+  $("#version-footer").textContent = `gportal-saves v${st.version || "?"} · store: ${st.store_root}`;
 }
 
 function storageNote(kind) {
@@ -155,7 +156,18 @@ function applyParsed(p) {
   el.className = p.warning ? "warn" : "ok";
 }
 
-$("#btn-cfg-parse").onclick = async () => {
+$("#btn-cfg-parse").onclick = () => parsePaste();
+
+// auto-parse as soon as a complete URL is pasted (no button click needed)
+$("#cfg-url").addEventListener("input", () => {
+  const v = $("#cfg-url").value.trim();
+  // fire once the paste looks complete: scheme + host + at least a user
+  if (/^[a-z]+:\/\/[^/]+@/i.test(v) || /^[a-z0-9.-]+:\d+$/i.test(v)) {
+    parsePaste();
+  }
+});
+
+async function parsePaste() {
   const url = $("#cfg-url").value;
   if (!url.trim()) { $("#cfg-parse-result").textContent = "Paste an FTP line first."; return; }
   try {
@@ -169,7 +181,7 @@ $("#btn-cfg-parse").onclick = async () => {
     $("#cfg-parse-result").textContent = "✘ " + e.message;
     $("#cfg-parse-result").className = "err";
   }
-};
+}
 
 $("#btn-cfg-suggest").onclick = async () => {
   try {

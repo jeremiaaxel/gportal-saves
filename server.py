@@ -25,6 +25,9 @@ from pathlib import Path
 # allow `python3 -I server.py` (isolated mode drops the script dir from sys.path)
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+VERSION = "0.3.0"  # bump when behavior changes; /api/state exposes it so a
+                   # stale long-running process is obvious in the UI
+
 import ftp_ops
 import games as games_mod
 import store
@@ -114,6 +117,7 @@ def _public_config() -> dict:
         "has_password": bool(c.get("password")),
         "client_dir": c.get("client_dir", ""),
         "storage": config_store.storage_kind(),
+        "version": VERSION,
     }
 
 
@@ -177,6 +181,9 @@ def run_pull(job_id: str) -> None:
                     JOBS[job_id].update(status="error", error=f"Missing critical path {full}: {e}")
                     return
                 log(job_id, f"(optional) {full} not found — skipping")
+        # paths can nest (Prospects inside DedicatedServer) — dedupe by FTP path
+        seen: set[str] = set()
+        files = [f for f in files if not (f.path in seen or seen.add(f.path))]
         to_fetch = [f for f in files if not f.is_dir]
         total_bytes = sum(f.size for f in to_fetch)
         log(job_id, f"{len(to_fetch)} files, {total_bytes/1e6:.1f} MB to download")

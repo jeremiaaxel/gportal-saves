@@ -3,6 +3,46 @@ let selected = null;
 let pollTimer = null;
 let configState = { configured: false };
 
+/* ── button busy states, always time-bounded so nothing sticks ── */
+const busyBtns = new Map(); // btn -> original label
+
+function setBusy(btn, label, timeoutMs = 45000) {
+  if (busyBtns.has(btn)) return; // already busy
+  busyBtns.set(btn, btn.textContent);
+  btn.disabled = true;
+  btn.textContent = label;
+  btn.classList.add("busy");
+  btn._busyTimer = setTimeout(() => clearBusy(btn, true), timeoutMs);
+}
+
+function clearBusy(btn, timedOut = false) {
+  if (!busyBtns.has(btn)) return;
+  clearTimeout(btn._busyTimer);
+  btn.textContent = busyBtns.get(btn);
+  btn.classList.remove("busy");
+  btn.disabled = false;
+  busyBtns.delete(btn);
+  if (timedOut) {
+    const el = $("#cfg-test-result");
+    if (el && document.contains(el)) {
+      el.textContent = "⚠ This took unusually long — server may be slow or unreachable. Check the host/port and try again.";
+      el.className = "test-result warn";
+    }
+  }
+}
+
+function withBusy(btn, fn, label = "⏳ Working…", timeoutMs = 45000) {
+  return async (...args) => {
+    if (busyBtns.has(btn)) return;
+    setBusy(btn, label, timeoutMs);
+    try {
+      await fn(...args);
+    } finally {
+      clearBusy(btn);
+    }
+  };
+}
+
 async function api(path, opts) {
   const r = await fetch(path, opts);
   const data = await r.json().catch(() => ({}));
@@ -201,7 +241,7 @@ $("#btn-cfg-suggest").onclick = async () => {
 
 async function testConfig(payload, resultEl) {
   resultEl.textContent = "Testing…";
-  resultEl.className = "muted";
+  resultEl.className = "test-result";
   try {
     const r = await api("/api/config/test", {
       method: "POST",
@@ -210,41 +250,41 @@ async function testConfig(payload, resultEl) {
     });
     if (!r.connected) {
       resultEl.textContent = "✘ " + (r.error || "Connection failed");
-      resultEl.className = "err";
+      resultEl.className = "test-result err";
       return null;
     }
     if (!r.game) {
       resultEl.textContent = "⚠ Connected, but no known game detected at the FTP root. Check the path with your host.";
-      resultEl.className = "warn";
+      resultEl.className = "test-result warn";
       return r;
     }
     const crit = (r.probes || []).filter((p) => p.critical);
     const ok = crit.every((p) => p.found);
-    resultEl.innerHTML = `✔ Connected — ${r.title} detected. ` +
+    resultEl.innerHTML = `✔ Connected — ${r.title} detected.<br>` +
       (r.probes || []).map((p) =>
         `${p.found ? "✔" : (p.critical ? "✘" : "⚠")} ${p.role}: ${p.found ? p.files + " files, " + fmtBytes(p.bytes) : "not found"}`
-      ).join(" · ") +
-      (ok ? "" : " — critical path missing, check with host support.");
-    resultEl.className = ok ? "ok" : "warn";
+      ).join("<br>") +
+      (ok ? "" : "<br>— critical path missing, check with host support.");
+    resultEl.className = ok ? "test-result ok" : "test-result warn";
     return r;
   } catch (e) {
     resultEl.textContent = "✘ " + e.message;
-    resultEl.className = "err";
+    resultEl.className = "test-result err";
     return null;
   }
 }
 
-$("#btn-cfg-test").onclick = async () => {
+$("#btn-cfg-test").onclick = withBusy($("#btn-cfg-test"), async () => {
   const payload = readWizard();
-  if (!payload.host || !payload.user) {
-    $("#cfg-test-result").textContent = "Fill in host, user and password first.";
+  if (!payload.host || !payload.user || !payload.password) {
+    $("#cfg-test-result").textContent = "Fill in host, user and password first (or paste the FTP line).";
+    $("#cfg-test-result").className = "test-result warn";
     return;
   }
-  const r = await testConfig(payload, $("#cfg-test-result"));
-  if (r && r.game) $("#ws1-check").textContent = "✔";
-};
+  await testConfig(payload, $("#cfg-test-result"));
+}, "⏳ Testing connection…", 50000);
 
-$("#btn-cfg-save").onclick = async () => {
+$("#btn-cfg-save").onclick = withBusy($("#btn-cfg-save"), async () => {
   const payload = readWizard();
   if (!payload.host || !payload.user || !payload.password) {
     $("#cfg-save-result").textContent = "Host, user and password are required.";
@@ -262,13 +302,13 @@ $("#btn-cfg-save").onclick = async () => {
   } catch (e) {
     $("#cfg-save-result").textContent = "✘ " + e.message;
   }
-};
+}, "⏳ Saving…");
 
 $("#btn-settings").onclick = () => {
   $("#settings-card").classList.toggle("hidden");
 };
 
-$("#btn-set-test").onclick = () => {
+$("#btn-set-test").onclick = withBusy($("#btn-set-test"), async () => {
   const payload = {
     host: $("#set-host").value.trim(),
     port: parseInt($("#set-port").value || "21", 10),
@@ -276,10 +316,10 @@ $("#btn-set-test").onclick = () => {
     password: $("#set-pass").value,
   };
   if (!payload.password && configState.has_password) payload.password = "•••stored•••";
-  testConfig(payload, $("#set-result"));
-};
+  await testConfig(payload, $("#set-result"));
+}, "⏳ Testing connection…", 50000);
 
-$("#btn-set-save").onclick = async () => {
+$("#btn-set-save").onclick = withBusy($("#btn-set-save"), async () => {
   try {
     await api("/api/config", {
       method: "POST",
@@ -298,22 +338,30 @@ $("#btn-set-save").onclick = async () => {
   } catch (e) {
     $("#set-result").textContent = "✘ " + e.message;
   }
-};
+}, "⏳ Saving…");
 /* ── main actions ────────────────────────────────────────── */
-$("#btn-status").onclick = () => doAction("/api/status");
-$("#btn-pull").onclick = () => doAction("/api/pull");
-$("#btn-verify").onclick = () => doAction("/api/verify");
+$("#btn-status").onclick = withBusy($("#btn-status"), () => doAction("/api/status"), "⏳ Checking…", 60000);
+$("#btn-pull").onclick = withBusy($("#btn-pull"), () => doAction("/api/pull"), "⏳ Job started — see log…");
+$("#btn-verify").onclick = withBusy($("#btn-verify"), () => doAction("/api/verify"), "⏳ Verifying…");
 $("#btn-push-server").onclick = () => {
   if (!selected) return alert("Select a snapshot first.");
   if (!confirm(`Restore "${selected}" to the GPORTAL server?\nMake sure the server is STOPPED in the GPORTAL web UI first.`)) return;
+  const btn = $("#btn-push-server");
+  if (busyBtns.has(btn)) return;
+  setBusy(btn, "⏳ Job started — see log…");
   doAction("/api/push", { snapshot: selected, target: "server" });
+  setTimeout(() => clearBusy(btn), 3000); // job hands off to the log; button frees up
 };
 $("#btn-push-client").onclick = () => {
   if (!selected) return alert("Select a snapshot first.");
   if (!configState.client_dir) {
-    return alert("Set the client Saved folder in ⚙ Settings first (Step 2 of setup).");
+    return alert("Set the client save folder in ⚙ Settings first.");
   }
+  const btn = $("#btn-push-client");
+  if (busyBtns.has(btn)) return;
+  setBusy(btn, "⏳ Job started — see log…");
   doAction("/api/push", { snapshot: selected, target: "client" });
+  setTimeout(() => clearBusy(btn), 3000);
 };
 
 document.addEventListener("click", (e) => {

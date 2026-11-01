@@ -15,6 +15,7 @@ import ftplib
 import json
 import os
 import posixpath
+import socket
 import sys
 import threading
 import time
@@ -121,34 +122,47 @@ def _public_config() -> dict:
     }
 
 
-def validate_creds(host: str, port: int, user: str, password: str) -> dict:
-    """Connect + detect game + probe save paths. Returns result dict."""
-    ftp = ftp_ops.connect(host, port, user, password)
-    try:
-        spec = games_mod.detect_game_from_dirs(ftp)
-        result: dict = {"connected": True, "game": spec.game_id if spec else None,
-                        "title": spec.title if spec else None}
-        if spec:
-            probes = []
-            for p in spec.paths:
-                full = posixpath.join(spec.root, p.rel_path)
-                try:
-                    entries = ftp_ops.walk(ftp, full)
-                    probes.append({
-                        "role": p.role,
-                        "path": full,
-                        "found": True,
-                        "files": sum(1 for e in entries if not e.is_dir),
-                        "bytes": sum(e.size for e in entries if not e.is_dir),
-                        "critical": p.critical,
-                    })
-                except ftplib.error_perm:
-                    probes.append({"role": p.role, "path": full, "found": False,
-                                   "files": 0, "bytes": 0, "critical": p.critical})
-            result["probes"] = probes
-        return result
-    finally:
-        ftp_ops.close(ftp)
+def validate_creds(host: str, port: int, user: str, password: str, timeout: int = 20) -> dict:
+    """Connect + detect game + probe save paths. Returns result dict.
+
+    Bounded: connect timeout, a hard socket floor so a stalled control
+    connection can't hang the request forever, and one retry on transient
+    network errors so a flaky moment reads as 'retry', not 'broken'.
+    """
+    last_err: Exception | None = None
+    for attempt in (1, 2):
+        ftp = None
+        try:
+            ftp = ftp_ops.connect(host, port, user, password, timeout=timeout)
+            ftp.sock.settimeout(timeout)
+            spec = games_mod.detect_game_from_dirs(ftp)
+            result: dict = {"connected": True, "game": spec.game_id if spec else None,
+                            "title": spec.title if spec else None}
+            if spec:
+                probes = []
+                for p in spec.paths:
+                    full = posixpath.join(spec.root, p.rel_path)
+                    try:
+                        entries = ftp_ops.walk(ftp, full)
+                        probes.append({
+                            "role": p.role,
+                            "path": full,
+                            "found": True,
+                            "files": sum(1 for e in entries if not e.is_dir),
+                            "bytes": sum(e.size for e in entries if not e.is_dir),
+                            "critical": p.critical,
+                        })
+                    except ftplib.error_perm:
+                        probes.append({"role": p.role, "path": full, "found": False,
+                                       "files": 0, "bytes": 0, "critical": p.critical})
+                result["probes"] = probes
+            return result
+        except (socket.timeout, TimeoutError, OSError) as e:
+            last_err = e
+        finally:
+            if ftp is not None:
+                ftp_ops.close(ftp)
+    raise TimeoutError(f"FTP did not respond within {timeout}s (retried once): {last_err}")
 
 
 def run_pull(job_id: str) -> None:

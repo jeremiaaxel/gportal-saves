@@ -32,8 +32,16 @@
 
         <div class="divider"><span>or fill in manually</span></div>
 
-        <label class="field-label" for="cfg-host">FTP host <span class="hint">— GPORTAL → My servers → your server → Status → FTP</span></label>
-        <input id="cfg-host" placeholder="e.g. ch.g-portal.com" autocomplete="off" spellcheck="false">
+        <div class="grid2">
+          <div>
+            <label class="field-label" for="cfg-host">FTP host</label>
+            <input id="cfg-host" placeholder="e.g. ch.g-portal.com" autocomplete="off" spellcheck="false">
+          </div>
+          <div>
+            <label class="field-label" for="cfg-port">Port</label>
+            <input id="cfg-port" placeholder="21" autocomplete="off">
+          </div>
+        </div>
 
         <div class="grid2">
           <div>
@@ -46,16 +54,8 @@
           </div>
         </div>
 
-        <div class="grid2">
-          <div>
-            <label class="field-label" for="cfg-port">Port</label>
-            <input id="cfg-port" placeholder="21" autocomplete="off">
-          </div>
-          <div>
-            <button id="btn-cfg-test" class="btn">Test connection</button>
-          </div>
-        </div>
-        <div id="cfg-test-result" class="muted"></div>
+        <button id="btn-cfg-test" class="btn primary btn-block">🔌 Test connection</button>
+        <div id="cfg-test-result" class="test-result">Not tested yet — this checks your login, detects the game, and probes every save path on the server.</div>
       </div>
 
       <div class="wstep" id="wstep-2">

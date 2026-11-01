@@ -144,6 +144,27 @@ def collect_dirs(ftp, root: str = "/", out: set[str] | None = None, depth: int =
 
 
 def detect_game_from_dirs(ftp) -> GameSpec | None:
+    """Fast path: probe each game's signature dirs directly (a handful of
+    MLSD calls) instead of walking the whole tree — Engine/Binaries alone
+    can be hundreds of dirs over FTP. Falls back to a full walk if nothing
+    matches (covers unusual roots)."""
+    all_sigs: set[str] = set()
+    for spec in GAMES.values():
+        for sig in spec.signatures:
+            all_sigs.add("/" + sig.strip("/"))
+    found = set()
+    for path in all_sigs:
+        try:
+            entries = ftp_ops.mlsd(ftp, path)
+            # exists if MLSD answered and it's a dir (has children or is listable)
+            if entries is not None:
+                found.add(path)
+        except Exception:
+            continue
+    for spec in GAMES.values():
+        if any("/" + sig.strip("/") in found for sig in spec.signatures):
+            return spec
+    # slow fallback: walk everything
     dirs = collect_dirs(ftp)
     for spec in GAMES.values():
         if spec.detect(dirs):

@@ -126,6 +126,15 @@ select {
   background: #0b0d12; border: 1px solid var(--border); color: var(--text);
   border-radius: 7px; padding: 8px 10px; font-size: 14px; min-width: 220px;
 }
+.suggest {
+  background: rgba(77, 163, 255, .08); border: 1px solid var(--accent);
+  border-radius: 8px; padding: 10px 12px; margin: 8px 0; font-size: 14px;
+}
+.suggest-path {
+  display: block; margin-top: 6px; background: #0b0d12;
+  padding: 5px 8px; border-radius: 5px; font: 12px ui-monospace, monospace;
+  color: var(--warn); word-break: break-all;
+}
 .hidden { display: none; }
 .banner {
   background: rgba(224, 93, 93, .15); border: 1px solid var(--err);
@@ -153,4 +162,5 @@ select {
   .notes code { background: #eef1f7; }
   input { background: #fff; }
   select { background: #fff; }
+  .suggest-path { background: #f0f2f7; }
 }

@@ -16,11 +16,14 @@
 </header>
 <main>
 
-  <!-- ══════════ SETUP WIZARD (shown until configured) ══════════ -->
+  <!-- ══════════ SETUP WIZARD / SETTINGS (same markup, two modes) ══════════ -->
   <section class="card setup" id="setup-card">
-    <h2>One-time setup</h2>
-    <p class="muted">Takes ~2 minutes. Credentials go into your system keyring — never into a file in this project.</p>
-    <p class="muted warn-text">Stale server running from an older version? Restart it (<code>Ctrl+C</code>, run again) — the footer shows the running version.</p>
+    <div class="header-row">
+      <h2 id="setup-title">One-time setup</h2>
+      <button id="btn-setup-close" class="btn tiny hidden">✕ Close</button>
+    </div>
+    <p class="muted" id="setup-subtitle">Takes ~2 minutes. Credentials go into your system keyring — never into a file in this project.</p>
+    <p class="muted warn-text" id="setup-stale-note">Stale server running from an older version? Restart it (<code>Ctrl+C</code>, run again) — the footer shows the running version.</p>
 
     <div class="wizard-steps">
       <div class="wstep" id="wstep-1">
@@ -63,10 +66,20 @@
 
       <div class="wstep" id="wstep-2">
         <h3>Step 2 · Client save folder <span class="hint">(optional — for the offline verification)</span></h3>
-        <label class="field-label" for="cfg-client-dir">Where your Icarus client reads local saves <span class="hint">— auto-filled if found</span></label>
-        <div class="row">
-          <input id="cfg-client-dir" placeholder="…/Icarus/Saved" autocomplete="off" spellcheck="false" style="flex:1">
-          <button id="btn-cfg-suggest" class="btn tiny">Use detected path</button>
+        <div id="client-dir-suggestion" class="suggest hidden">
+          <div><b>Found your Icarus client save folder:</b></div>
+          <code id="suggest-path" class="suggest-path"></code>
+          <div class="row" style="margin-top:8px">
+            <button id="btn-use-suggestion" class="btn primary">Use it</button>
+            <button id="btn-use-custom" class="btn tiny">I'll enter a different one</button>
+          </div>
+        </div>
+        <div id="client-dir-custom" class="hidden">
+          <label class="field-label" for="cfg-client-dir">Where your Icarus client reads local saves</label>
+          <div class="row">
+            <input id="cfg-client-dir" placeholder="…/Icarus/Saved" autocomplete="off" spellcheck="false" style="flex:1">
+            <button id="btn-cfg-suggest" class="btn tiny">Back to detected path</button>
+          </div>
         </div>
       </div>
 
@@ -159,41 +172,6 @@
     </ol>
     <p class="muted">GPORTAL's built-in backups live on the rented server itself — they do <b>not</b> survive the rental ending.
     Only a local copy does. Cancel via <b>Payment and Duration → Cancellation</b>; the server runs until the paid term ends, so back up before you cancel.</p>
-  </section>
-
-  <section class="card hidden" id="settings-card">
-    <h2>⚙ Settings</h2>
-
-    <label class="field-label" for="set-host">FTP host</label>
-    <input id="set-host" placeholder="e.g. ch.g-portal.com" autocomplete="off" spellcheck="false">
-
-    <div class="grid2">
-      <div>
-        <label class="field-label" for="set-user">FTP user</label>
-        <input id="set-user" placeholder="FTP user" autocomplete="off" spellcheck="false">
-      </div>
-      <div>
-        <label class="field-label" for="set-pass">FTP password <span class="hint">(leave blank to keep stored)</span></label>
-        <input id="set-pass" placeholder="••••••••" type="password" autocomplete="off">
-      </div>
-    </div>
-
-    <div class="grid2">
-      <div>
-        <label class="field-label" for="set-port">Port</label>
-        <input id="set-port" placeholder="21" autocomplete="off">
-      </div>
-      <div>
-        <label class="field-label" for="set-client-dir">Client save folder <span class="hint">(optional)</span></label>
-        <input id="set-client-dir" placeholder="…/Icarus/Saved" autocomplete="off" spellcheck="false">
-      </div>
-    </div>
-
-    <div class="row">
-      <button id="btn-set-save" class="btn primary">Save</button>
-      <button id="btn-set-test" class="btn">Test connection</button>
-      <span id="set-result" class="muted"></span>
-    </div>
   </section>
 
   <section class="card">

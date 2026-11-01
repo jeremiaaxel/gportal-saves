@@ -70,21 +70,16 @@ async function refresh() {
 
 function renderState(st) {
   const configured = !!st.configured;
-  $("#setup-card").classList.toggle("hidden", configured);
+  configState = st;
+  $("#setup-card").classList.toggle("hidden", configured && setupMode === "first-run");
   $("#workflows-wrap").classList.toggle("hidden", !configured);
-  $("#settings-card").classList.add("hidden"); // start collapsed
 
   if (configured) {
-    if (!$("#set-host").value) {
-      $("#set-host").value = st.host || "";
-      $("#set-port").value = st.port || 21;
-      $("#set-user").value = st.user || "";
-      $("#set-client-dir").value = st.client_dir || "";
-      $("#set-pass").placeholder = st.has_password ? "password stored — leave blank to keep" : "password";
-    }
     $("#storage-note").textContent = storageNote(st.storage);
     renderSnapshots(st);
     renderJob(st);
+    // NOTE: never auto-refresh settings fields here — setSetupMode() runs on
+    // button click; re-running it on every poll would clobber in-progress edits
   }
   $("#version-footer").textContent = `gportal-saves v${st.version || "?"} · store: ${st.store_root}`;
 }
@@ -178,7 +173,9 @@ async function doAction(path, body) {
   }
 }
 
-/* ── setup wizard + settings ─────────────────────────────── */
+/* ── setup wizard + settings (one surface, two modes) ────── */
+let setupMode = "first-run"; // "first-run" | "settings"
+
 function readWizard() {
   return {
     host: $("#cfg-host").value.trim(),
@@ -232,21 +229,43 @@ async function parsePaste() {
   }
 }
 
-$("#btn-cfg-suggest").onclick = async () => {
+/* Step 2: suggestion-first flow — probe on wizard open, offer "Use it" */
+async function probeClientDir() {
   try {
     const r = await api("/api/config/suggest-client-dir");
+    const sug = $("#client-dir-suggestion");
     if (r.found) {
-      $("#cfg-client-dir").value = r.path;
-      $("#cfg-parse-result").textContent = r.why;
-      $("#cfg-parse-result").className = "ok";
-    } else {
-      $("#cfg-parse-result").textContent = "No Icarus client folder found — enter the path manually.";
-      $("#cfg-parse-result").className = "warn";
+      $("#suggest-path").textContent = r.path;
+      sug.dataset.path = r.path;
+      sug.classList.remove("hidden");
+      $("#client-dir-custom").classList.add("hidden");
+      return true;
     }
+    sug.classList.add("hidden");
+    $("#client-dir-custom").classList.remove("hidden"); // no suggestion -> manual entry
+    return false;
   } catch (e) {
-    $("#cfg-parse-result").textContent = "✘ " + e.message;
+    $("#client-dir-suggestion").classList.add("hidden");
+    $("#client-dir-custom").classList.remove("hidden");
+    return false;
   }
+}
+
+$("#btn-use-suggestion").onclick = () => {
+  const sug = $("#client-dir-suggestion");
+  $("#cfg-client-dir").value = sug.dataset.path || "";
+  sug.classList.add("hidden");
+  $("#client-dir-custom").classList.remove("hidden");
+  $("#cfg-parse-result").textContent = "✔ Using the detected client folder.";
+  $("#cfg-parse-result").className = "ok";
 };
+
+$("#btn-use-custom").onclick = () => {
+  $("#client-dir-suggestion").classList.add("hidden");
+  $("#client-dir-custom").classList.remove("hidden");
+};
+
+$("#btn-cfg-suggest").onclick = () => probeClientDir();
 
 async function testConfig(payload, resultEl) {
   resultEl.textContent = "Testing…";
@@ -295,8 +314,13 @@ $("#btn-cfg-test").onclick = withBusy($("#btn-cfg-test"), async () => {
 
 $("#btn-cfg-save").onclick = withBusy($("#btn-cfg-save"), async () => {
   const payload = readWizard();
-  if (!payload.host || !payload.user || !payload.password) {
-    $("#cfg-save-result").textContent = "Host, user and password are required.";
+  if (!payload.host || !payload.user) {
+    $("#cfg-save-result").textContent = "Host and user are required.";
+    return;
+  }
+  const editingStored = setupMode === "settings" && configState.has_password;
+  if (!payload.password && !editingStored) {
+    $("#cfg-save-result").textContent = "Password is required (or leave blank only when a password is already stored).";
     return;
   }
   try {
@@ -306,47 +330,55 @@ $("#btn-cfg-save").onclick = withBusy($("#btn-cfg-save"), async () => {
       body: JSON.stringify(payload),
     });
     $("#cfg-save-result").textContent = "Saved.";
+    $("#cfg-pass").value = "";
+    $("#cfg-pass").placeholder = "stored — leave blank to keep";
+    if (setupMode === "settings") {
+      $("#setup-card").classList.add("hidden");
+      setSetupMode("first-run"); // next open re-reads fresh state
+    }
     refresh();
   } catch (e) {
     $("#cfg-save-result").textContent = "✘ " + e.message;
   }
 }, "⏳ Saving…");
 
-$("#btn-settings").onclick = () => {
-  $("#settings-card").classList.toggle("hidden");
+function setSetupMode(mode) {
+  setupMode = mode;
+  const isSettings = mode === "settings";
+  $("#setup-title").textContent = isSettings ? "⚙ Settings" : "One-time setup";
+  $("#setup-subtitle").textContent = isSettings
+    ? "Same wizard as first run — edit anything and Save. Blank password keeps the stored one."
+    : "Takes ~2 minutes. Credentials go into your system keyring — never into a file in this project.";
+  $("#setup-stale-note").classList.toggle("hidden", isSettings);
+  $("#btn-setup-close").classList.toggle("hidden", !isSettings);
+  $("#btn-cfg-save").textContent = isSettings ? "Save settings" : "Save configuration";
+  if (isSettings && configState) {
+    // settings mode pre-fills from stored config
+    $("#cfg-host").value = configState.host || "";
+    $("#cfg-port").value = configState.port || 21;
+    $("#cfg-user").value = configState.user || "";
+    $("#cfg-client-dir").value = configState.client_dir || "";
+    $("#cfg-pass").value = "";
+    $("#cfg-pass").placeholder = configState.has_password
+      ? "stored — leave blank to keep" : "FTP password";
+    // if a client dir is already stored, show manual view; else probe
+    if (configState.client_dir) {
+      $("#client-dir-suggestion").classList.add("hidden");
+      $("#client-dir-custom").classList.remove("hidden");
+    } else {
+      probeClientDir();
+    }
+    $("#setup-card").scrollIntoView({ behavior: "smooth", block: "start" });
+  } else {
+    probeClientDir(); // first-run: suggestion-first
+  }
+}
+
+$("#btn-settings").onclick = () => setSetupMode("settings");
+$("#btn-setup-close").onclick = () => {
+  $("#setup-card").classList.add("hidden");
 };
 
-$("#btn-set-test").onclick = withBusy($("#btn-set-test"), async () => {
-  const payload = {
-    host: $("#set-host").value.trim(),
-    port: parseInt($("#set-port").value || "21", 10),
-    user: $("#set-user").value.trim(),
-    password: $("#set-pass").value,
-  };
-  if (!payload.password && configState.has_password) payload.password = "•••stored•••";
-  await testConfig(payload, $("#set-result"));
-}, "⏳ Testing connection…", 50000);
-
-$("#btn-set-save").onclick = withBusy($("#btn-set-save"), async () => {
-  try {
-    await api("/api/config", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        host: $("#set-host").value.trim(),
-        port: parseInt($("#set-port").value || "21", 10),
-        user: $("#set-user").value.trim(),
-        password: $("#set-pass").value,
-        client_dir: $("#set-client-dir").value.trim(),
-      }),
-    });
-    $("#set-result").textContent = "Saved.";
-    $("#set-pass").value = "";
-    refresh();
-  } catch (e) {
-    $("#set-result").textContent = "✘ " + e.message;
-  }
-}, "⏳ Saving…");
 /* ── main actions ────────────────────────────────────────── */
 $("#btn-status").onclick = withBusy($("#btn-status"), () => doAction("/api/status"), "⏳ Checking…", 60000);
 $("#btn-pull").onclick = withBusy($("#btn-pull"), () => doAction("/api/pull"), "⏳ Job started — see log…");
@@ -366,7 +398,7 @@ $("#btn-restore").onclick = withBusy($("#btn-restore"), async () => {
   const isServer = target === "server";
 
   if (!isServer && !configState.client_dir) {
-    alert("Set the client save folder in ⚙ Settings first.");
+    alert("Set the client save folder in ⚙ Settings first (button top-right).");
     return;
   }
 

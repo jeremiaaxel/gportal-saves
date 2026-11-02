@@ -16,8 +16,9 @@
 </header>
 <main>
 
-  <!-- ══════════ SETUP WIZARD / SETTINGS (same markup, two modes) ══════════ -->
-  <section class="card setup" id="setup-card">
+  <!-- ══════════ SETUP WIZARD / SETTINGS (modal overlay, two modes) ══════════ -->
+  <div class="modal-backdrop hidden" id="setup-backdrop">
+  <section class="card setup modal modal-lg" id="setup-card">
     <div class="header-row">
       <h2 id="setup-title">One-time setup</h2>
       <button id="btn-setup-close" class="btn tiny hidden">✕ Close</button>
@@ -65,17 +66,18 @@
       </div>
 
       <div class="wstep" id="wstep-2">
-        <h3>Step 2 · Client save folder <span class="hint">(optional — for the offline verification)</span></h3>
+        <h3>Step 2 · Your PC's Icarus save folder <span class="hint">(optional — for the offline test)</span></h3>
         <div id="client-dir-suggestion" class="suggest hidden">
-          <div><b>Found your Icarus client save folder:</b></div>
+          <div><b>Found your Icarus save folder on this PC:</b></div>
           <code id="suggest-path" class="suggest-path"></code>
           <div class="row" style="margin-top:8px">
             <button id="btn-use-suggestion" class="btn primary">Use it</button>
+            <button id="btn-open-suggestion" class="btn tiny">📁 Open in file manager</button>
             <button id="btn-use-custom" class="btn tiny">I'll enter a different one</button>
           </div>
         </div>
         <div id="client-dir-custom" class="hidden">
-          <label class="field-label" for="cfg-client-dir">Where your Icarus client reads local saves</label>
+          <label class="field-label" for="cfg-client-dir">Where the Icarus game on this PC reads its saves</label>
           <div class="row">
             <input id="cfg-client-dir" placeholder="…/Icarus/Saved" autocomplete="off" spellcheck="false" style="flex:1">
             <button id="btn-browse-client-dir" class="btn">📁 Browse…</button>
@@ -92,8 +94,18 @@
           <span id="cfg-save-result" class="muted"></span>
         </div>
       </div>
+
+      <div class="wstep danger-zone" id="danger-zone">
+        <h3>⚠ Danger zone</h3>
+        <p class="muted">Delete local snapshots. This does <b>not</b> touch the GPORTAL server or your game — but there is no undo, so only do it if you're sure you have your saves elsewhere.</p>
+        <div class="row">
+          <button id="btn-cleanup-all" class="btn danger">🗑 Delete ALL local snapshots</button>
+        </div>
+        <div id="cleanup-result" class="muted"></div>
+      </div>
     </div>
   </section>
+  </div><!-- /setup-backdrop -->
 
   <!-- ══════════ MAIN APP (shown when configured) ══════════ -->
   <div class="workflows" id="workflows-wrap">
@@ -118,13 +130,15 @@
           <span id="verify-hint" class="muted">Checks every critical save component is present, offline.</span>
         </div>
         <p class="muted" id="store-path"></p>
+        <button id="btn-open-store" class="btn tiny">📁 Open snapshot folder</button>
+        <button id="btn-delete-last" class="btn tiny danger">🗑 Delete…</button>
       </div>
     </section>
 
     <!-- RESTORE column -->
     <section class="card wf" id="restore-col">
       <h2 class="wf-title restore">⬆ Restore</h2>
-      <p class="muted">Put a snapshot's saves back — to a fresh GPORTAL server, or your own client for the offline test.</p>
+      <p class="muted">Put a snapshot's saves back — onto the GPORTAL server, or onto this PC to play offline.</p>
 
       <div class="restore-pick">
         <h3>Restore from</h3>
@@ -145,7 +159,7 @@
         </label>
         <label class="radio-row">
           <input type="radio" name="restore-dst" value="client">
-          <span><b>Client Saved folder</b> <span class="hint">— offline proof / offline play</span></span>
+          <span><b>This PC</b> <span class="hint">— copy into your own game, play offline</span></span>
         </label>
       </div>
 
@@ -161,7 +175,7 @@
       <li><b>Verify</b> checks offline that every critical component is present in the latest snapshot.</li>
       <li><b>The real proof — no re-renting needed.</b> The Icarus client reads the same folder layout as the server, so:
         <ul>
-          <li>use <b>Copy → client Saved folder</b> (needs the Step-2 path), or manually copy
+          <li>use <b>Restore → This PC</b> (needs the Step-2 path), or manually copy
               <code>Prospects/</code> → <code>%LOCALAPPDATA%\Icarus\Saved\</code> and the SteamID folder →
               <code>%LOCALAPPDATA%\Icarus\Saved\PlayerData\&lt;your steamid&gt;\</code>;</li>
           <li>launch Icarus <b>single-player</b> — if the prospect appears in your load list, the backup is complete and playable;</li>
@@ -185,7 +199,7 @@
 <div class="modal-backdrop hidden" id="browser-backdrop">
   <div class="modal" role="dialog" aria-modal="true" aria-label="Choose folder">
     <div class="modal-head">
-      <b>Choose the client save folder</b>
+      <b>Choose the Icarus save folder on this PC</b>
       <button id="btn-browser-close" class="btn tiny">✕</button>
     </div>
     <div class="modal-crumbs">

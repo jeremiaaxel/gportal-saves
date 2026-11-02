@@ -74,7 +74,7 @@ function renderState(st) {
   // setup card visible when: not configured (first-run), or user opened
   // settings and hasn't closed/saved it
   const setupOpen = !configured || setupMode === "settings-open";
-  $("#setup-card").classList.toggle("hidden", !setupOpen);
+  $("#setup-backdrop").classList.toggle("hidden", !setupOpen);
   $("#workflows-wrap").classList.toggle("hidden", !configured);
 
   if (configured) {
@@ -261,8 +261,89 @@ $("#btn-use-suggestion").onclick = () => {
   $("#cfg-client-dir").value = sug.dataset.path || "";
   sug.classList.add("hidden");
   $("#client-dir-custom").classList.remove("hidden");
-  $("#cfg-parse-result").textContent = "✔ Using the detected client folder.";
+  $("#cfg-parse-result").textContent = "✔ Using the detected save folder on this PC.";
   $("#cfg-parse-result").className = "ok";
+};
+
+$("#btn-open-suggestion").onclick = async () => {
+  const path = $("#client-dir-suggestion").dataset.path;
+  if (!path) return;
+  try {
+    await api("/api/fs/open", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path }) });
+  } catch (e) {
+    alert("Could not open the folder: " + e.message);
+  }
+};
+
+/* snapshots footer: reveal the local snapshot store */
+$("#btn-open-store").onclick = async () => {
+  try {
+    const st = await api("/api/state");
+    await api("/api/fs/open", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: st.store_root }),
+    });
+  } catch (e) {
+    alert("Could not open the folder: " + e.message);
+  }
+};
+
+/* ── snapshot deletion (danger zone) ─────────────────────── */
+$("#btn-delete-last").onclick = async () => {
+  try {
+    const st = await api("/api/state");
+    const list = st.snapshots[st.games[0]] || [];
+    if (!list.length) return alert("No snapshots to delete.");
+    if (list.length === 1) {
+      if (!confirm("Delete the only snapshot (" + list[0].name + ")?\n\nThis is your entire local backup — no undo.")) return;
+      if (!confirm("Really delete it? Make sure you have your saves somewhere else first.")) return;
+    } else {
+      const names = list.map((s) => s.name).join("\n");
+      const pick = prompt(
+        "Delete which snapshot? Type the exact name (no undo):\n\n" + names + "\n\n" +
+        "Type ALL to delete every snapshot:"
+      );
+      if (!pick) return;
+      if (pick.trim().toUpperCase() === "ALL") {
+        if (!confirm("Delete ALL " + list.length + " snapshots? No undo.")) return;
+        await api("/api/snapshots/delete-all", { method: "POST" });
+        refresh();
+        return;
+      }
+      if (!list.some((s) => s.name === pick.trim())) return alert("No snapshot with that name.");
+      if (!confirm('Delete snapshot "' + pick.trim() + '"? No undo.')) return;
+      await api("/api/snapshots/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: pick.trim() }),
+      });
+    }
+    refresh();
+  } catch (e) {
+    alert("Delete failed: " + e.message);
+  }
+};
+
+$("#btn-cleanup-all").onclick = async () => {
+  try {
+    const st = await api("/api/state");
+    const list = st.snapshots[st.games[0]] || [];
+    const n = list.length;
+    const totalBytes = list.reduce((a, s) => a + (s.bytes || 0), 0);
+    if (!confirm(
+      "Delete ALL " + n + " local snapshot(s) (" + fmtBytes(totalBytes) + ")?\n\n" +
+      "This wipes your entire local backup of the GPORTAL server saves.\n" +
+      "Nothing on the GPORTAL server or in your game is touched — but if your saves exist " +
+      "NOWHERE else, they will be unrecoverable."
+    )) return;
+    if (!confirm("Last check: are you sure you have your saves backed up somewhere else?")) return;
+    const r = await api("/api/snapshots/delete-all", { method: "POST" });
+    $("#cleanup-result").textContent = `✔ Deleted ${r.deleted_count} snapshot(s). The store will be rebuilt on the next Backup.`;
+    refresh();
+  } catch (e) {
+    $("#cleanup-result").textContent = "✘ " + e.message;
+  }
 };
 
 $("#btn-use-custom").onclick = () => {
@@ -415,7 +496,14 @@ async function testConfig(payload, resultEl) {
 
 $("#btn-cfg-test").onclick = withBusy($("#btn-cfg-test"), async () => {
   const payload = readWizard();
-  if (!payload.host || !payload.user || !payload.password) {
+  // settings mode with stored password: blank fields are fine — backend
+  // merges host/user/password with the stored config when blanks are sent
+  const editingStored = setupMode === "settings-open" && configState.has_password;
+  if (editingStored) {
+    if (!payload.host) payload.host = configState.host || "";
+    if (!payload.user) payload.user = configState.user || "";
+    // blank password => backend substitutes the stored one
+  } else if (!payload.host || !payload.user || !payload.password) {
     $("#cfg-test-result").textContent = "Fill in host, user and password first (or paste the FTP line).";
     $("#cfg-test-result").className = "test-result warn";
     return;
@@ -445,7 +533,7 @@ $("#btn-cfg-save").onclick = withBusy($("#btn-cfg-save"), async () => {
     $("#cfg-pass").placeholder = "stored — leave blank to keep";
     if (setupMode === "settings-open") {
       setupMode = "closed";
-      $("#setup-card").classList.add("hidden");
+      $("#setup-backdrop").classList.add("hidden");
     }
     refresh();
   } catch (e) {
@@ -465,6 +553,7 @@ function setSetupMode(mode) {
     ? "Same wizard as first run — edit anything and Save. Blank password keeps the stored one."
     : "Takes ~2 minutes. Credentials go into your system keyring — never into a file in this project.";
   $("#setup-stale-note").classList.toggle("hidden", isSettings);
+  $("#danger-zone").classList.toggle("hidden", !isSettings); // cleanup only makes sense once configured
   $("#btn-setup-close").classList.toggle("hidden", !isSettings);
   $("#btn-cfg-save").textContent = isSettings ? "Save settings" : "Save configuration";
   if (isSettings && configState) {
@@ -476,7 +565,7 @@ function setSetupMode(mode) {
     $("#cfg-pass").value = "";
     $("#cfg-pass").placeholder = configState.has_password
       ? "stored — leave blank to keep" : "FTP password";
-    // if a client dir is already stored, show manual view; else probe
+    // if a PC save folder is already stored, show manual view; else probe
     if (configState.client_dir) {
       $("#client-dir-suggestion").classList.add("hidden");
       $("#client-dir-custom").classList.remove("hidden");
@@ -490,13 +579,28 @@ function setSetupMode(mode) {
 
 $("#btn-settings").onclick = () => {
   setSetupMode("settings");
-  $("#setup-card").classList.remove("hidden");
-  $("#setup-card").scrollIntoView({ behavior: "smooth", block: "start" });
+  $("#setup-backdrop").classList.remove("hidden");
 };
 $("#btn-setup-close").onclick = () => {
   setupMode = "closed";
-  $("#setup-card").classList.add("hidden");
+  $("#setup-backdrop").classList.add("hidden");
 };
+// first-run modal is persistent: no backdrop-click dismissal (nothing
+// configured yet — the app behind it is unusable anyway). Settings mode
+// dismisses on backdrop click.
+$("#setup-backdrop").addEventListener("click", (e) => {
+  if (e.target === $("#setup-backdrop") && setupMode === "settings-open") {
+    setupMode = "closed";
+    $("#setup-backdrop").classList.add("hidden");
+  }
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("#setup-backdrop").classList.contains("hidden")
+      && setupMode === "settings-open") {
+    setupMode = "closed";
+    $("#setup-backdrop").classList.add("hidden");
+  }
+});
 
 /* ── main actions ────────────────────────────────────────── */
 $("#btn-status").onclick = withBusy($("#btn-status"), () => doAction("/api/status"), "⏳ Checking…", 60000);
@@ -517,17 +621,17 @@ $("#btn-restore").onclick = withBusy($("#btn-restore"), async () => {
   const isServer = target === "server";
 
   if (!isServer && !configState.client_dir) {
-    alert("Set the client save folder in ⚙ Settings first (button top-right).");
+    alert("Set your PC's Icarus save folder in ⚙ Settings first (button top-right).");
     return;
   }
 
   // confirmation dialogue — mandatory for both restore targets
   const ok = confirm(
-    `Restore ${snapLabel} → ${isServer ? "the GPORTAL server" : "your local client folder"}?\n\n` +
+    `Restore ${snapLabel} → ${isServer ? "the GPORTAL server" : "your PC's Icarus save folder"}?\n\n` +
     (isServer
       ? "⚠ Make sure the server is STOPPED in the GPORTAL web UI first.\n" +
         "Existing save files on the server will be overwritten."
-      : "⚠ Files in your client Saved folder will be overwritten.\n" +
+      : "⚠ Files in your PC's Icarus save folder will be overwritten.\n" +
         `Target: ${configState.client_dir}`)
   );
   if (!ok) return;

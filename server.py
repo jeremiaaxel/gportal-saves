@@ -272,19 +272,42 @@ def run_push(job_id: str, snap_name: str | None, target: str = "server") -> None
         if not dest:
             JOBS[job_id].update(status="error", error="Set the client save folder in ⚙ Settings first (it's where your Icarus client keeps local saves).")
             return
-        log(job_id, f"Copying snapshot {snap_dir.name} to {dest}…")
+        # Client layout differs from the server's! Server snapshot:
+        #   PlayerData/DedicatedServer/Prospects/*.json
+        # Client expects per-player:
+        #   PlayerData/<steamid>/Prospects/*.json
+        # Remap DedicatedServer/Prospects into the local player folder so
+        # prospects actually appear in the client's load list.
+        steamid_dir = next(
+            (d for d in (dest / "PlayerData").glob("7*") if d.is_dir() and d.name.isdigit()),
+            None,
+        ) if (dest / "PlayerData").is_dir() else None
+        if steamid_dir is None:
+            JOBS[job_id].update(
+                status="error",
+                error=f"No PlayerData/<steamid> folder found under {dest} — launch Icarus once (client) so it creates your player folder, then retry.",
+            )
+            return
+        prospects_src = snap_dir / "PlayerData" / "DedicatedServer" / "Prospects"
+        if not prospects_src.is_dir():
+            JOBS[job_id].update(status="error", error="Snapshot has no Prospects folder (unexpected).")
+            return
+        prospects_dst = steamid_dir / "Prospects"
+        log(job_id, f"Copying server Prospects → {prospects_dst} (client layout)…")
         copied = 0
-        for lf in snap_dir.rglob("*"):
-            if lf.is_file():
-                rel = lf.relative_to(snap_dir).as_posix()
-                target_path = dest / rel
-                target_path.parent.mkdir(parents=True, exist_ok=True)
-                import shutil
+        import shutil
 
+        for lf in prospects_src.rglob("*"):
+            if lf.is_file():
+                rel = lf.relative_to(prospects_src).as_posix()
+                target_path = prospects_dst / rel
+                target_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(lf, target_path)
                 copied += 1
                 log(job_id, f"  {rel}")
-        log(job_id, f"✔ Copied {copied} files to client dir. See Icarus notes for in-game loading steps.")
+        log(job_id, f"✔ Copied {copied} files into your client's Prospects folder ({steamid_dir.name}).")
+        log(job_id, "Launch Icarus single-player — the prospect should appear in the load list. "
+                    "Remove the copies afterwards if you don't want them locally (Steam Cloud may sync them).")
     JOBS[job_id].update(status="done", result={"game": spec.game_id, "snapshot": snap_dir.name, "target": target})
 
 
@@ -457,6 +480,89 @@ def _suggested_client_dir() -> str | None:
     return None
 
 
+def openable_path(raw: str) -> Path | None:
+    """Allowlist for /api/fs/open: only paths that are part of this tool's
+    world — the snapshot store, the configured client dir, the detected
+    client dir, or the server config dir. Anything else is refused so a
+    stray request can't pop arbitrary local folders."""
+    if not raw:
+        return None
+    try:
+        rp = Path(raw).expanduser().resolve(strict=True)
+    except (OSError, RuntimeError):
+        return None
+    store_root = store.STORE_ROOT.resolve()
+    parts = [store_root]
+    c = get_creds().get("client_dir", "")
+    if c:
+        try:
+            parts.append(Path(c).expanduser().resolve(strict=True))
+        except (OSError, RuntimeError):
+            pass
+    sug = _suggested_client_dir()
+    if sug:
+        try:
+            parts.append(Path(sug).resolve(strict=True))
+        except OSError:
+            pass
+    for base in parts:
+        if rp == base or base in rp.parents:
+            return rp
+    return None
+
+
+def open_in_file_manager(path: Path) -> bool:
+    """Reveal a folder in the desktop file manager (dolphin/explorer/finder)."""
+    import subprocess
+    import sys
+
+    try:
+        if sys.platform == "win32":
+            subprocess.Popen(["explorer", str(path)])
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", str(path)])
+        else:
+            subprocess.Popen(["xdg-open", str(path)])
+        return True
+    except OSError:
+        return False
+
+
+def delete_snapshot(game_id: str, name: str) -> dict:
+    """Delete ONE snapshot (dir + manifest record). Name must be a plain
+    snapshot folder name — no path traversal."""
+    import shutil
+
+    if not name or "/" in name or "\\" in name or name.startswith("."):
+        return {"ok": False, "error": "Invalid snapshot name."}
+    snap_dir = store.game_dir(game_id) / "snapshots" / name
+    if not snap_dir.is_dir():
+        return {"ok": False, "error": f"Snapshot {name} not found."}
+    others = [s for s in store.snapshots(game_id) if s.name != name]
+    if not others:
+        # deleting the only snapshot = full cleanup semantics
+        return delete_all_snapshots(game_id)
+    shutil.rmtree(snap_dir)
+    m = store.read_manifest(game_id)
+    m.get("snapshots", {}).pop(name, None)
+    lv = m.get("last_verify") or {}
+    if lv.get("snapshot") == name:
+        m.pop("last_verify", None)
+    store.write_manifest(game_id, m)
+    return {"ok": True, "deleted": [name]}
+
+
+def delete_all_snapshots(game_id: str) -> dict:
+    """Delete EVERY snapshot + the manifest. The dangerous 'cleanup' path."""
+    import shutil
+
+    gdir = store.game_dir(game_id)
+    count = len(store.snapshots(game_id))
+    if gdir.exists():
+        shutil.rmtree(gdir)
+    return {"ok": True, "deleted_count": count}
+
+
 def list_dir(raw: str) -> dict:
     """List a local directory for the client-folder browser.
 
@@ -592,6 +698,22 @@ class Handler(BaseHTTPRequestHandler):
             ln = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(ln) or b"{}")
             self._json(list_dir(body.get("path", "")))
+        elif self.path == "/api/fs/open":
+            ln = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(ln) or b"{}")
+            rp = openable_path(body.get("path", ""))
+            if rp is None:
+                self._json({"ok": False, "error": "Path is not part of this tool's world (store, client dir, or detected dir)."}, 403)
+            elif open_in_file_manager(rp):
+                self._json({"ok": True, "path": str(rp)})
+            else:
+                self._json({"ok": False, "error": "No file manager available (xdg-open failed)."})
+        elif self.path == "/api/snapshots/delete":
+            ln = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(ln) or b"{}")
+            self._json(delete_snapshot(games_mod.GAMES["icarus"].game_id, body.get("name", "")))
+        elif self.path == "/api/snapshots/delete-all":
+            self._json(delete_all_snapshots(games_mod.GAMES["icarus"].game_id))
         elif self.path == "/api/config/parse-url":
             ln = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(ln) or b"{}")
@@ -599,12 +721,17 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/api/config/test":
             ln = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(ln) or b"{}")
+            # settings mode: blanks mean "use the stored value" for every field
+            stored = get_creds()
+            host = body.get("host", "").strip() or stored.get("host", "")
+            user = body.get("user", "").strip() or stored.get("user", "")
+            pw = body.get("password", "") or stored.get("password", "")
             try:
                 result = validate_creds(
-                    body.get("host", "").strip(),
-                    int(body.get("port") or 21),
-                    body.get("user", "").strip(),
-                    body.get("password", ""),
+                    host,
+                    int(body.get("port") or stored.get("port") or 21),
+                    user,
+                    pw,
                 )
                 self._json(result)
             except Exception as e:

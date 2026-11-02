@@ -23,7 +23,14 @@ def game_dir(game_id: str) -> Path:
 
 def new_snapshot_dir(game_id: str) -> Path:
     ts = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
-    d = game_dir(game_id) / "snapshots" / ts
+    root = game_dir(game_id) / "snapshots"
+    d = root / ts
+    # second-resolution names collide on rapid re-runs — uniquify instead of
+    # silently merging two backups into one folder
+    n = 1
+    while d.exists() and any(d.iterdir()):
+        n += 1
+        d = root / f"{ts}_{n}"
     d.mkdir(parents=True, exist_ok=True)
     return d
 

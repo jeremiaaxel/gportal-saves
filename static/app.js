@@ -237,6 +237,8 @@ async function parsePaste() {
 }
 
 /* Step 2: suggestion card is a shortcut ABOVE the always-visible manual row */
+/* Soft probe for wizard-open (errors -> "not found", never throws).
+   The button handler calls /api directly so failures surface to the user. */
 async function probeClientDir() {
   try {
     const r = await api("/api/config/suggest-client-dir");
@@ -425,19 +427,25 @@ $("#btn-store-default").onclick = () => {
 /* local game folder: "Use detected path" refills from the live probe */
 $("#btn-cfg-suggest").onclick = async () => {
   const btn = $("#btn-cfg-suggest");
+  const out = $("#game-dir-result");
   setBusy(btn, "⏳ Detecting…", 20000);
   try {
-    const found = await probeClientDir();
-    const path = $("#client-dir-suggestion").dataset.path;
-    if (found && path) {
-      $("#cfg-client-dir").value = path;
+    const r = await api("/api/config/suggest-client-dir"); // direct: errors propagate
+    if (r.found && r.path) {
+      $("#suggest-path").textContent = r.path;
+      $("#client-dir-suggestion").dataset.path = r.path;
+      $("#cfg-client-dir").value = r.path;
       updateGameDirReset();
-      $("#cfg-parse-result").textContent = "✔ Using the detected save folder on this PC (Step 3).";
-      $("#cfg-parse-result").className = "ok";
+      $("#client-dir-suggestion").classList.remove("hidden");
+      out.textContent = "✔ Using the detected save folder on this PC.";
+      out.className = "ok";
     } else {
-      $("#cfg-parse-result").textContent = "⚠ No Icarus save folder found on this PC — enter it manually.";
-      $("#cfg-parse-result").className = "warn";
+      out.textContent = "⚠ No Icarus save folder found on this PC — enter it manually or use 📁 Browse…";
+      out.className = "warn";
     }
+  } catch (e) {
+    out.textContent = "✘ Detection failed: " + e.message;
+    out.className = "err";
   } finally {
     clearBusy(btn);
   }

@@ -426,78 +426,9 @@ def start_job(kind: str, **kwargs) -> str:
     return job_id
 
 
-class Handler(BaseHTTPRequestHandler):
-    def _send(self, code: int, body: bytes, ctype: str = "application/json") -> None:
-        self.send_response(code)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        self.wfile.write(body)
+# NOTE: the module-level helpers below (lines with def icarus_client_dir_candidates ...)
+# are LIVE code used by the Handler class defined at the bottom of this file.
 
-    def _json(self, obj, code: int = 200) -> None:
-        self._send(code, json.dumps(obj).encode(), "application/json")
-
-    def do_GET(self):
-        if self.path == "/":
-            self._send(200, (Path(__file__).parent / "static" / "index.html").read_bytes(), "text/html; charset=utf-8")
-        elif self.path == "/app.js":
-            self._send(200, (Path(__file__).parent / "static" / "app.js").read_bytes(), "application/javascript")
-        elif self.path == "/style.css":
-            self._send(200, (Path(__file__).parent / "static" / "style.css").read_bytes(), "text/css")
-        elif self.path == "/api/state":
-            with STATE_LOCK:
-                snaps = {}
-                manifests = {}
-                for gid in games_mod.GAMES:
-                    m = store.read_manifest(gid)
-                    manifests[gid] = m
-                    snaps[gid] = [
-                        {
-                            "name": s.name,
-                            "mtime": s.stat().st_mtime,
-                            "files": m.get("snapshots", {}).get(s.name, {}).get("files"),
-                            "bytes": m.get("snapshots", {}).get(s.name, {}).get("bytes"),
-                            "verify": m.get("snapshots", {}).get(s.name, {}).get("verify"),
-                        }
-                        for s in store.snapshots(gid)
-                    ]
-                jobs = {k: {kk: vv for kk, vv in v.items()} for k, v in JOBS.items()}
-            self._json({
-                "games": list(games_mod.GAMES),
-                "snapshots": snaps,
-                "last_verify": {gid: manifests[gid].get("last_verify") for gid in games_mod.GAMES},
-                "jobs": jobs,
-                "store_root": str(store.get_root()),
-                **_public_config(),
-            })
-        elif self.path.startswith("/api/job/"):
-            job_id = self.path.rsplit("/", 1)[1]
-            with STATE_LOCK:
-                job = JOBS.get(job_id)
-                self._json(job or {"error": "unknown job"}, 200 if job else 404)
-        else:
-            self._json({"error": "not found"}, 404)
-
-    def do_POST(self):
-        if self.path == "/api/pull":
-            if not get_creds().get("host"):
-                self._json({"error": "Not configured yet — finish the setup wizard first."}, 400)
-                return
-            self._json({"job": start_job("pull")})
-        elif self.path == "/api/push":
-            if not get_creds().get("host"):
-                self._json({"error": "Not configured yet — finish the setup wizard first."}, 400)
-                return
-            ln = int(self.headers.get("Content-Length") or 0)
-            body = json.loads(self.rfile.read(ln) or b"{}")
-            self._json({"job": start_job("push", snapshot=body.get("snapshot"), target=body.get("target", "server"))})
-        elif self.path == "/api/verify":
-            ln = int(self.headers.get("Content-Length") or 0)
-            body = json.loads(self.rfile.read(ln) or b"{}")
-            self._json({"job": start_job("verify", snapshot=body.get("snapshot"))})
-        elif self.path == "/api/status":
-            self._json({"job": start_job("status")})
 def icarus_client_dir_candidates() -> list[Path]:
     """Well-known locations of the Icarus client save folder (Steam/Proton)."""
     return [
@@ -784,7 +715,15 @@ class Handler(BaseHTTPRequestHandler):
         self._send(code, json.dumps(obj).encode(), "application/json")
 
     def do_GET(self):
-        if self.path == "/":
+        # read-only API also served on GET: fetch() without an explicit
+        # method issues GET, and probeClientDir (wizard Step 3) relies on it
+        if self.path == "/api/config/suggest-client-dir":
+            sug = _suggested_client_dir()
+            if sug:
+                self._json({"found": True, "path": sug, "why": "Detected Icarus (Proton/Steam) client save folder."})
+            else:
+                self._json({"found": False, "candidates": [str(c) for c in icarus_client_dir_candidates()]})
+        elif self.path == "/":
             self._send(200, (Path(__file__).parent / "static" / "index.html").read_bytes(), "text/html; charset=utf-8")
         elif self.path == "/app.js":
             self._send(200, (Path(__file__).parent / "static" / "app.js").read_bytes(), "application/javascript")

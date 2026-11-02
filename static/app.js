@@ -189,6 +189,7 @@ function readWizard() {
     password: $("#cfg-pass").value,
     client_dir: $("#cfg-client-dir").value.trim(),
     ftp_root: $("#cfg-ftp-root").value.trim(),
+    store_dir: $("#cfg-store-dir").value.trim(),
   };
 }
 
@@ -392,6 +393,62 @@ $("#btn-ftp-root-clear").onclick = () => {
   updateFtpRootNote();
 };
 
+/* snapshot archive location */
+function updateStoreNote() {
+  const v = $("#cfg-store-dir").value.trim();
+  $("#btn-store-default").classList.toggle("hidden", !v);
+  $("#store-note").textContent = v
+    ? `Snapshots will be archived in "${v}". Changing it moves existing snapshots.`
+    : "Backups are archived in the default location — separate from the game folder so the game never sees them. Changing it moves existing snapshots.";
+}
+
+$("#cfg-store-dir").addEventListener("input", updateStoreNote);
+$("#btn-store-default").onclick = () => {
+  $("#cfg-store-dir").value = "";
+  updateStoreNote();
+};
+
+/* local game folder: "Use detected path" refills from the live probe */
+$("#btn-cfg-suggest").onclick = async () => {
+  const btn = $("#btn-cfg-suggest");
+  setBusy(btn, "⏳ Detecting…", 20000);
+  try {
+    const found = await probeClientDir();
+    const path = $("#client-dir-suggestion").dataset.path;
+    if (found && path) {
+      $("#cfg-client-dir").value = path;
+      $("#cfg-parse-result").textContent = "✔ Using the detected save folder on this PC (Step 3).";
+      $("#cfg-parse-result").className = "ok";
+    } else {
+      $("#cfg-parse-result").textContent = "⚠ No Icarus save folder found on this PC — enter it manually.";
+      $("#cfg-parse-result").className = "warn";
+    }
+  } finally {
+    clearBusy(btn);
+  }
+};
+$("#btn-browse-store").onclick = async () => {
+  const btn = $("#btn-browse-store");
+  setBusy(btn, "⏳ Pick a folder in the dialog…", 3600000);
+  try {
+    const r = await api("/api/fs/pick", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ start: $("#cfg-store-dir").value.trim() }),
+    });
+    if (r.ok && r.path) {
+      $("#cfg-store-dir").value = r.path;
+      updateStoreNote();
+    } else if (!r.cancelled) {
+      $("#cfg-save-result").textContent = "✘ " + (r.error || "Picker failed.");
+    }
+  } catch (e) {
+    $("#cfg-save-result").textContent = "✘ " + e.message;
+  } finally {
+    clearBusy(btn);
+  }
+};
+
 const ftpBrowser = { cwd: "/" };
 
 async function ftpList(path) {
@@ -566,7 +623,8 @@ function setSetupMode(mode) {
   // flip it immediately for responsiveness
   $("#setup-title").textContent = isSettings ? "⚙ Settings" : "One-time setup";
   $("#setup-subtitle").textContent = isSettings
-    ? "Same wizard as first run — edit anything and Save. Blank password keeps the stored one."
+  $("#setup-subtitle").textContent = isSettings
+    ? "Credentials go into your system keyring — never into a file in this project."
     : "Takes ~2 minutes. Credentials go into your system keyring — never into a file in this project.";
   $("#setup-stale-note").classList.toggle("hidden", isSettings);
   $("#danger-zone").classList.toggle("hidden", !isSettings); // cleanup only makes sense once configured
@@ -579,7 +637,9 @@ function setSetupMode(mode) {
     $("#cfg-user").value = configState.user || "";
     $("#cfg-client-dir").value = configState.client_dir || "";
     $("#cfg-ftp-root").value = configState.ftp_root || "";
+    $("#cfg-store-dir").value = configState.store_dir || "";
     updateFtpRootNote();
+    updateStoreNote();
     $("#cfg-pass").value = "";
     $("#cfg-pass").placeholder = configState.has_password
       ? "stored — leave blank to keep" : "FTP password";
@@ -590,6 +650,8 @@ function setSetupMode(mode) {
       probeClientDir();
     }
   } else {
+    $("#cfg-store-dir").value = "";
+    updateStoreNote();
     probeClientDir(); // first-run: show shortcut above the manual row
   }
 }

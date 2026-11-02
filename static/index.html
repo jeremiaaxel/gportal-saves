@@ -71,12 +71,22 @@
         <div class="row">
           <input id="cfg-ftp-root" placeholder="(auto-detect)" autocomplete="off" spellcheck="false" style="flex:1">
           <button id="btn-browse-ftp" class="btn">📁 Browse FTP…</button>
-          <button id="btn-ftp-root-clear" class="btn tiny hidden">Use auto-detect</button>
+          <button id="btn-ftp-root-clear" class="btn tiny hidden">Use detected path</button>
+        </div>
+      </div>
+
+      <div class="wstep" id="wstep-store">
+        <h3>Step 2 · Snapshot archive <span class="hint">(where backups are kept on this PC)</span></h3>
+        <p class="muted" id="store-note">Backups are archived here — separate from the game folder so the game never sees them. Changing it moves existing snapshots to the new place.</p>
+        <div class="row">
+          <input id="cfg-store-dir" placeholder="(default: Steam folder / ~/gportal-saves)" autocomplete="off" spellcheck="false" style="flex:1">
+          <button id="btn-browse-store" class="btn">📁 Browse…</button>
+          <button id="btn-store-default" class="btn tiny hidden">Use default</button>
         </div>
       </div>
 
       <div class="wstep" id="wstep-2">
-        <h3>Step 2 · Your PC's Icarus save folder <span class="hint">(on this PC — optional, for the offline test)</span></h3>
+        <h3>Step 3 · Your PC's Icarus save folder <span class="hint">(optional — only for offline play / testing)</span></h3>
         <div id="client-dir-suggestion" class="suggest hidden">
           <div><b>Found your Icarus save folder on this PC:</b></div>
           <code id="suggest-path" class="suggest-path"></code>
@@ -90,13 +100,14 @@
           <div class="row">
             <input id="cfg-client-dir" placeholder="…/Icarus/Saved" autocomplete="off" spellcheck="false" style="flex:1">
             <button id="btn-browse-client-dir" class="btn">📁 Browse…</button>
+            <button id="btn-cfg-suggest" class="btn tiny hidden">Use detected path</button>
           </div>
           <p class="muted" id="pick-hint" style="margin-top:6px">📁 Browse… opens your system's folder picker (Dolphin).</p>
         </div>
       </div>
 
       <div class="wstep">
-        <h3>Step 3 · Save</h3>
+        <h3>Step 4 · Save</h3>
         <p class="muted" id="storage-note"></p>
         <div class="row">
           <button id="btn-cfg-save" class="btn primary">Save configuration</button>

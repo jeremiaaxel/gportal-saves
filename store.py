@@ -15,10 +15,32 @@ import time
 from pathlib import Path
 
 STORE_ROOT = Path(os.environ.get("GPORTAL_SAVES_STORE", Path.home() / ".local/share/gportal-saves"))
+_DEFAULT_ROOT = STORE_ROOT
+_custom_root: Path | None = None
+
+
+def get_root() -> Path:
+    """Current snapshot-store root (default, env, or user-set override)."""
+    return _custom_root if _custom_root is not None else _DEFAULT_ROOT
+
+
+def set_default_root(path: Path) -> None:
+    """Change the default (used before any user override exists)."""
+    global _DEFAULT_ROOT
+    _DEFAULT_ROOT = path
+
+
+def set_root(path: Path) -> None:
+    global _custom_root
+    _custom_root = path
+
+
+def default_root() -> Path:
+    return _DEFAULT_ROOT
 
 
 def game_dir(game_id: str) -> Path:
-    return STORE_ROOT / game_id
+    return get_root() / game_id
 
 
 def new_snapshot_dir(game_id: str) -> Path:

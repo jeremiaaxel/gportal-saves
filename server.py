@@ -118,6 +118,8 @@ def _public_config() -> dict:
         "has_password": bool(c.get("password")),
         "client_dir": c.get("client_dir", ""),
         "ftp_root": c.get("ftp_root", ""),
+        "store_dir": c.get("store_dir", ""),
+        "store_default": str(default_store_root()),
         "storage": config_store.storage_kind(),
         "version": VERSION,
     }
@@ -466,7 +468,7 @@ class Handler(BaseHTTPRequestHandler):
                 "snapshots": snaps,
                 "last_verify": {gid: manifests[gid].get("last_verify") for gid in games_mod.GAMES},
                 "jobs": jobs,
-                "store_root": str(store.STORE_ROOT),
+                "store_root": str(store.get_root()),
                 **_public_config(),
             })
         elif self.path.startswith("/api/job/"):
@@ -505,6 +507,15 @@ def icarus_client_dir_candidates() -> list[Path]:
     ]
 
 
+def default_store_root() -> Path:
+    """Easy-to-find default for the snapshot archive: inside the Steam
+    library when present (next to steamapps), else ~/gportal-saves."""
+    steam = Path.home() / ".local/share/Steam"
+    if steam.is_dir():
+        return steam / "gportal-saves"
+    return Path.home() / "gportal-saves"
+
+
 def _suggested_client_dir() -> str | None:
     for c in icarus_client_dir_candidates():
         try:
@@ -526,7 +537,7 @@ def openable_path(raw: str) -> Path | None:
         rp = Path(raw).expanduser().resolve(strict=True)
     except (OSError, RuntimeError):
         return None
-    store_root = store.STORE_ROOT.resolve()
+    store_root = store.get_root().resolve()
     parts = [store_root]
     c = get_creds().get("client_dir", "")
     if c:
@@ -652,6 +663,61 @@ def delete_all_snapshots(game_id: str) -> dict:
     return {"ok": True, "deleted_count": count}
 
 
+def relocate_store(old_setting: str, new_setting: str) -> int:
+    """Move the snapshot store to a new location; returns migrated count.
+
+    old_setting: previously configured store dir ("" = default location)
+    new_setting: desired store dir ("" = back to default)
+    Only the game's snapshot tree moves; the old dir is left as an empty
+    husk (or removed if empty) so a wrong path can be corrected.
+    """
+    import shutil
+
+    old_root = Path(old_setting).expanduser() if old_setting else store.default_root()
+    new_root = Path(new_setting).expanduser() if new_setting else default_store_root()
+    old_gdir = old_root / "icarus"
+    new_gdir = new_root / "icarus"
+    if old_gdir == new_gdir:
+        return 0
+    moved = 0
+    if old_gdir.exists():
+        moved = len(store.snapshots("icarus"))
+        new_root.mkdir(parents=True, exist_ok=True)
+        if new_gdir.exists():
+            raise FileExistsError(f"Target already contains snapshots: {new_gdir}")
+        shutil.move(str(old_gdir), str(new_gdir))
+        # clean up the emptied old tree (snapshots/<game> gone)
+        try:
+            (old_root / "snapshots").rmdir()
+        except OSError:
+            pass
+        if old_root not in (store.default_root(), default_store_root()):
+            try:
+                old_root.rmdir()
+            except OSError:
+                pass  # not empty or in use — leave it
+    store.set_root(new_root)
+    if not new_setting:
+        store.set_default_root(default_store_root())
+    return moved
+
+
+def apply_store_setting() -> None:
+    """On boot: point the store at the configured location (no move).
+    Without a user setting, upgrade the default to the easy-to-find
+    location — unless GPORTAL_SAVES_STORE was set explicitly (env wins)."""
+    c = get_creds()
+    sd = (c.get("store_dir") or "").strip()
+    env_set = bool(os.environ.get("GPORTAL_SAVES_STORE"))
+    if sd:
+        try:
+            store.set_root(Path(sd).expanduser())
+        except Exception:
+            pass
+    elif not env_set:
+        store.set_default_root(default_store_root())
+
+
 def list_dir(raw: str) -> dict:
     """List a local directory for the client-folder browser.
 
@@ -747,7 +813,7 @@ class Handler(BaseHTTPRequestHandler):
                 "snapshots": snaps,
                 "last_verify": {gid: manifests[gid].get("last_verify") for gid in games_mod.GAMES},
                 "jobs": jobs,
-                "store_root": str(store.STORE_ROOT),
+                "store_root": str(store.get_root()),
                 **_public_config(),
             })
         elif self.path.startswith("/api/job/"):
@@ -871,6 +937,20 @@ class Handler(BaseHTTPRequestHandler):
             if not body.get("password") and current.get("password"):
                 body["password"] = current["password"]
             body.setdefault("client_dir", current.get("client_dir", ""))
+            body.setdefault("ftp_root", current.get("ftp_root", ""))
+            # snapshot store location: empty = default; changing it moves
+            # existing snapshots so no backup is orphaned
+            new_store = (body.get("store_dir") or "").strip()
+            old_store = current.get("store_dir", "")
+            if new_store != old_store:
+                try:
+                    moved = relocate_store(old_store, new_store)
+                    log_to_all(f"Snapshot store {'moved to ' + new_store if new_store else 'reset to default'}"
+                               + (f" ({moved} snapshot(s) migrated)" if moved else ""))
+                except Exception as e:
+                    self._json({"ok": False, "error": f"Could not move snapshot store: {e}"}, 400)
+                    return
+            body.setdefault("store_dir", old_store if not new_store else new_store)
             save_creds(body)
             self._json({"ok": True})
         else:
@@ -885,6 +965,7 @@ def main() -> None:
     ap.add_argument("--port", type=int, default=8777)
     ap.add_argument("--open", action="store_true", help="open browser automatically")
     args = ap.parse_args()
+    apply_store_setting()
     addr = ("127.0.0.1", args.port)
     httpd = ThreadingHTTPServer(addr, Handler)
     url = f"http://{addr[0]}:{addr[1]}"

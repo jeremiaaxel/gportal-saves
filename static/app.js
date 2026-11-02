@@ -235,7 +235,7 @@ async function parsePaste() {
   }
 }
 
-/* Step 2: suggestion-first flow — probe on wizard open, offer "Use it" */
+/* Step 2: suggestion card is a shortcut ABOVE the always-visible manual row */
 async function probeClientDir() {
   try {
     const r = await api("/api/config/suggest-client-dir");
@@ -244,15 +244,12 @@ async function probeClientDir() {
       $("#suggest-path").textContent = r.path;
       sug.dataset.path = r.path;
       sug.classList.remove("hidden");
-      $("#client-dir-custom").classList.add("hidden");
       return true;
     }
     sug.classList.add("hidden");
-    $("#client-dir-custom").classList.remove("hidden"); // no suggestion -> manual entry
     return false;
   } catch (e) {
     $("#client-dir-suggestion").classList.add("hidden");
-    $("#client-dir-custom").classList.remove("hidden");
     return false;
   }
 }
@@ -260,9 +257,7 @@ async function probeClientDir() {
 $("#btn-use-suggestion").onclick = () => {
   const sug = $("#client-dir-suggestion");
   $("#cfg-client-dir").value = sug.dataset.path || "";
-  sug.classList.add("hidden");
-  $("#client-dir-custom").classList.remove("hidden");
-  $("#cfg-parse-result").textContent = "✔ Using the detected save folder on this PC.";
+  $("#cfg-parse-result").textContent = "✔ Using the detected save folder on this PC (Step 2).";
   $("#cfg-parse-result").className = "ok";
 };
 
@@ -346,13 +341,6 @@ $("#btn-cleanup-all").onclick = async () => {
     $("#cleanup-result").textContent = "✘ " + e.message;
   }
 };
-
-$("#btn-use-custom").onclick = () => {
-  $("#client-dir-suggestion").classList.add("hidden");
-  $("#client-dir-custom").classList.remove("hidden");
-};
-
-$("#btn-cfg-suggest").onclick = () => probeClientDir();
 
 /* ── native folder picker (real OS dialog, e.g. Dolphin) ─── */
 async function nativePick(startPath) {
@@ -595,15 +583,14 @@ function setSetupMode(mode) {
     $("#cfg-pass").value = "";
     $("#cfg-pass").placeholder = configState.has_password
       ? "stored — leave blank to keep" : "FTP password";
-    // if a PC save folder is already stored, show manual view; else probe
+    // manual row is always visible; suggestion card only when nothing stored yet
     if (configState.client_dir) {
       $("#client-dir-suggestion").classList.add("hidden");
-      $("#client-dir-custom").classList.remove("hidden");
     } else {
       probeClientDir();
     }
   } else {
-    probeClientDir(); // first-run: suggestion-first
+    probeClientDir(); // first-run: show shortcut above the manual row
   }
 }
 

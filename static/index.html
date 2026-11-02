@@ -66,7 +66,7 @@
       </div>
 
       <div class="wstep" id="wstep-ftp">
-        <h3>Step 1b · Server save folder <span class="hint">(advanced — auto-detect works on GPORTAL)</span></h3>
+        <h3>Step 1b · Server save folder <span class="hint">(on the FTP server — auto-detected on GPORTAL)</span></h3>
         <p class="muted" id="ftp-root-note">The game's save folder on the server is found automatically. Only set this if auto-detection fails (unusual hosting layout).</p>
         <div class="row">
           <input id="cfg-ftp-root" placeholder="(auto-detect)" autocomplete="off" spellcheck="false" style="flex:1">
@@ -76,22 +76,20 @@
       </div>
 
       <div class="wstep" id="wstep-2">
-        <h3>Step 2 · Your PC's Icarus save folder <span class="hint">(optional — for the offline test)</span></h3>
+        <h3>Step 2 · Your PC's Icarus save folder <span class="hint">(on this PC — optional, for the offline test)</span></h3>
         <div id="client-dir-suggestion" class="suggest hidden">
           <div><b>Found your Icarus save folder on this PC:</b></div>
           <code id="suggest-path" class="suggest-path"></code>
           <div class="row" style="margin-top:8px">
             <button id="btn-use-suggestion" class="btn primary">Use it</button>
             <button id="btn-open-suggestion" class="btn tiny">📁 Open in file manager</button>
-            <button id="btn-use-custom" class="btn tiny">I'll enter a different one</button>
           </div>
         </div>
-        <div id="client-dir-custom" class="hidden">
-          <label class="field-label" for="cfg-client-dir">Where the Icarus game on this PC reads its saves</label>
+        <div id="client-dir-custom">
+          <label class="field-label" for="cfg-client-dir">Where the Icarus game on this PC reads its saves <span class="hint">— leave empty to skip</span></label>
           <div class="row">
             <input id="cfg-client-dir" placeholder="…/Icarus/Saved" autocomplete="off" spellcheck="false" style="flex:1">
             <button id="btn-browse-client-dir" class="btn">📁 Browse…</button>
-            <button id="btn-cfg-suggest" class="btn tiny">Use detected path</button>
           </div>
           <p class="muted" id="pick-hint" style="margin-top:6px">📁 Browse… opens your system's folder picker (Dolphin).</p>
         </div>

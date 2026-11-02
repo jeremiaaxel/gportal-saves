@@ -1,0 +1,13 @@
+# gportal-saves
+
+> One-click backup, verify, and restore for GPORTAL game-server saves (ICARUS). Prevents permanent save loss when a GPORTAL rental ends.
+
+Run locally: `python3 server.py --open` (Python 3.10+, zero dependencies). Setup wizard in the browser: paste FTP line, test, save. Backup pulls `Icarus/Config/Saved/...` over FTP into dated snapshots; Verify checks components offline; Restore pushes to a fresh server or remaps into the local Icarus client layout. Credentials go to the OS keyring.
+
+Key facts:
+- GPORTAL built-in backups live on the rented server and die with the rental; only an FTP download before expiry survives.
+- Server save layout: `PlayerData/DedicatedServer/Prospects/*.json`; client layout differs: `PlayerData/<steamid>/Prospects/`.
+- First reconnect after a restore may fail with Error 65; retry.
+- Extensible via one GameSpec dataclass per game in `games.py`.
+
+Repo: https://github.com/jeremiaaxel/gportal-saves

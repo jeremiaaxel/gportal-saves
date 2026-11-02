@@ -1,86 +1,86 @@
 # gportal-saves
 
-Back up, verify, and restore your **GPORTAL game server saves** with one click — built for **ICARUS** (more games welcome).
+Back up, verify, and restore **GPORTAL game-server saves** — built for **ICARUS** (more games welcome).
 
-> **Disclaimer:** this project is AI-generated ("vibe-coded") — built end-to-end with Claude Code from a problem description, tested against a real GPORTAL server, and maintained by a human. If you spot a bug, that's why — and PRs are welcome.
+> **Disclaimer:** this project is AI-generated ("vibe-coded") — built with Claude Code from a problem description, tested against a real GPORTAL server, maintained by a human. Bugs are expected; PRs welcome.
 
-**The problem it solves:** GPORTAL has no pause button. When you stop renting your server, everything you haven't downloaded is **permanently deleted** — worlds, prospect saves, player progression. GPORTAL's own docs say to download your savegame via FTP before the rental ends; their built-in backups live *on* the rented server and die with it.
+**The problem:** GPORTAL has no pause. When a rental ends, anything not downloaded is deleted — worlds, prospect saves, player progression. GPORTAL's docs say to download via FTP before the term ends; their built-in backups live on the rented server and are lost with it.
 
-**This tool turns that into three clicks:**
+**What this tool does:**
 
-1. **Backup now** — pulls all save files over FTP into dated local snapshots
-2. **Verify** — proves, offline, that every critical save component is present
-3. **Restore** — years later, push a snapshot back to a fresh server or into your local game
+1. **Backup** — downloads all save files over FTP into dated local snapshots
+2. **Verify** — checks offline that every expected save component is present in a snapshot
+3. **Restore** — uploads a snapshot to a (new) server, or copies it into a local Icarus install for offline play
 
-No config files, no command line beyond starting the server. A local web UI walks you through everything.
+Local web UI, one-time setup wizard, no config files.
 
 ## Quick start
 
 ```bash
 git clone https://github.com/jeremiaaxel/gportal-saves.git
 cd gportal-saves
-python3 server.py --open        # opens http://127.0.0.1:8777 in your browser
+python3 server.py --open        # serves http://127.0.0.1:8777 and opens it
 ```
 
-Requirements: **Python 3.10+ only — zero pip installs.** Linux, Windows, macOS.
+Requires Python 3.10+ (stdlib only, no pip installs). Linux, Windows, macOS.
 
-The setup wizard asks for your GPORTAL FTP login (find it in the GPORTAL web UI → *My servers* → your server → **Status** → FTP), or just paste the whole `ftp://user:pass@host:port` line and it parses itself. A live connection test detects the game and probes every save path before your first real backup.
+Setup: the wizard asks for the GPORTAL FTP login (web UI → *My servers* → your server → **Status** → FTP), or paste the whole `ftp://user:pass@host:port` line and it parses. Test connection detects the game and probes the save paths before the first backup.
 
 ## What gets backed up (ICARUS)
 
-Discovered from a live GPORTAL server — this is the layout that actually ships, including the parts other guides miss:
+Layout taken from a live GPORTAL server (November 2026):
 
-| Server path (relative to FTP root) | What it is | Critical |
+| Server path (relative to FTP root) | Contents | Critical |
 |---|---|---|
-| `Icarus/Config/Saved/PlayerData/DedicatedServer/Prospects/` | **Your worlds** — one `.json` per prospect (+ rolling `.backup_*` copies) | ✅ |
-| `Icarus/Config/Saved/PlayerData/DedicatedServer/` | **Global progression** — `Accolades.json` (orbital workshop currency) etc. | – |
+| `Icarus/Config/Saved/PlayerData/DedicatedServer/Prospects/` | Worlds: one `.json` per prospect + rolling `.backup_*` copies | ✅ |
+| `Icarus/Config/Saved/PlayerData/DedicatedServer/` | Global progression: `Accolades.json` (orbital workshop currency) | – |
 | `Icarus/Config/Saved/Config/WindowsServer/` | Server settings (`ServerSettings.ini`, `Engine.ini`) | – |
 
-Snapshots land in your chosen archive folder (default: `~/.local/share/Steam/gportal-saves/`, else `~/gportal-saves/`), keep the last 10, and are verified offline via a per-component checklist.
+Snapshots go to a configurable archive folder (default: `~/.local/share/Steam/gportal-saves/`, else `~/gportal-saves/`); the last 10 are kept, older ones pruned.
 
-## "How do I know my backup is complete?" — the offline proof
+## Checking a backup without re-renting
 
-The killer feature, no re-renting needed: the Icarus **client** reads the same save format as the server.
+Verify confirms the files are present, but the only real test is loading the world. The Icarus client reads the same prospect format as the server, so:
 
-1. **Verify** — one click, checks all critical components exist in the snapshot
-2. **Restore → This PC** — remaps server saves into your client's layout (`PlayerData/<your-steamid>/Prospects/` — *not* the server's `DedicatedServer` layout; getting this wrong is why "my world doesn't show up" happens)
-3. Launch Icarus **single-player** — if the prospect appears in the load list, your backup is provably complete and playable
+1. **Verify** — checklist per component (worlds, progression, settings)
+2. **Restore → This PC** — copies the snapshot's prospects into the client layout (`PlayerData/<steamid>/Prospects/`, not the server's `DedicatedServer/` layout — they differ)
+3. Launch Icarus single-player — if the prospect appears in the load list, the backup works
 
-Then when you're ready: rent a fresh GPORTAL server, **Restore → Server** (server stopped), restart, connect. First reconnect may fail with **Error 65** — just retry. Your world continues where you left off.
+Later: rent a fresh server, **Restore → Server** (server stopped), restart, connect. The first reconnect may fail with Error 65; retry.
 
-## Features
+## Notes
 
-- **Auto-detection** — identifies the game and its save paths from the FTP listing; manual override with a server-side folder browser for unusual hosting layouts
-- **FTP URL paste** — `ftp://user:pass@host:port` parses into fields automatically
-- **Credential safety** — FTP login goes into your OS keyring (KDE Wallet / gnome-keyring via Secret Service); falls back to a chmod-600 file in `~/.local/state/` otherwise. Never written into the project, never committed
-- **Native folder pickers** — Dolphin / Explorer / Finder dialogs for local paths, real KDE/zenity dialogs, not fake web ones
-- **Snapshot management** — dated snapshots, 10-snapshot rotation, per-snapshot verify badges, delete-one or delete-all (double-confirmed danger zone), open-in-file-manager buttons
-- **Hard timeouts everywhere** — bounded FTP operations and retry, pulsing busy button states that can't stick
-- **Extensible game registry** — one `GameSpec` dataclass per game in `games.py`; detection, backup paths, and verify checklist all derive from it
+- **Auto-detection** — finds the game and save paths from the FTP listing; manual override with an FTP folder browser for other hosting layouts
+- **FTP URL paste** — `ftp://user:pass@host:port` fills the fields
+- **Credentials** — OS keyring (KDE Wallet / gnome-keyring via Secret Service), fallback `~/.local/state/gportal-saves/config.json` (chmod 600); nothing secret in the project directory
+- **Folder pickers** — native OS dialogs (kdialog/zenity/tkinter/osascript) for local paths
+- **Snapshot management** — rotation, per-snapshot verify status, delete one/all (double-confirmed), open-in-file-manager
+- **Timeouts** — FTP operations are time-bounded with one retry; UI busy states clear on a timer
+- **Game registry** — one `GameSpec` dataclass per game in `games.py`; detection, paths, and checklist derive from it
 
-## Why not just use GPORTAL's backup feature?
+## Why not GPORTAL's built-in backups?
 
-GPORTAL's built-in backups (50 GB) are stored **on the rented server itself**. Cancel the rental, and they're gone with it. This tool is the missing piece: a backup that lives on *your* machine and outlives the rental.
+They're stored on the rented server (50 GB quota). Cancel the rental and they're gone. This tool keeps the backup on your machine.
 
 ## Adding another game
 
-`games.py` is a registry: signature folders (for FTP auto-detection), paths to capture, required file patterns. A new game ≈ 20 lines of dataclass — the UI, verification checklist, and restore logic are game-agnostic. PRs welcome.
+Add a `GameSpec` to `games.py`: signature folders (for detection), paths to capture, required file patterns. The UI, checklist, and restore logic are game-agnostic.
 
 ## Roadmap
 
-- **Leaner codebase** — keep shrinking the core; the backup/restore path is already stdlib-only and should stay that way
-- **Hosted web version** — paste your FTP credentials, request a download, get your saves as a `.zip`; files are wiped from the server within 1–2 hours. Caveat: you'd be handing your FTP login to a third party, which the local version never asks of you.
-- **Headless CLI / TUI** — same backup → verify → restore flow for servers, cron jobs, and SSH-only boxes
+- Leaner codebase
+- Hosted web version: paste FTP credentials, request a download, receive a `.zip`; server wipes files within 1–2 hours. Caveat: you'd give your FTP login to a third party, which the local version never asks.
+- Headless CLI / TUI for cron and SSH-only machines
 
-## Security notes
+## Security
 
-- Web UI binds to `127.0.0.1` only — nothing is exposed to your network
-- The only internet traffic is the FTP connection you configure
-- Credentials: OS keyring → `~/.local/state/gportal-saves/config.json` (chmod 600) fallback; nothing secret in the project directory
+- Web UI binds to `127.0.0.1` only
+- Only network traffic is the FTP connection you configure
+- Credentials in OS keyring → `~/.local/state/gportal-saves/config.json` (chmod 600) fallback
 
-## Sources & further reading
+## Sources
 
-- GPORTAL wiki: [Icarus server setup](https://www.g-portal.com/wiki/en/icarus/) (FTP, save paths), [backups](https://www.g-portal.com/wiki/en/how-do-i-create-a-backup-of-my-gportal-server/) (live on the server), [cancellation](https://www.g-portal.com/wiki/en/how-do-i-cancel-a-server/) (download before term ends)
+- GPORTAL wiki: [Icarus server setup](https://www.g-portal.com/wiki/en/icarus/) (FTP, save paths), [backups](https://www.g-portal.com/wiki/en/how-do-i-create-a-backup-of-my-gportal-server/), [cancellation](https://www.g-portal.com/wiki/en/how-do-i-cancel-a-server/) (download before term ends)
 - Steam guides: [migrate saves to a dedicated server](https://steamcommunity.com/sharedfiles/filedetails/?id=2908350744), [share save files](https://steamcommunity.com/sharedfiles/filedetails/?id=3661461211)
 
 ## Keywords

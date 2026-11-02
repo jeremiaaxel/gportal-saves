@@ -856,9 +856,17 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/api/ftp/list":
             ln = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(ln) or b"{}")
-            creds = get_creds()
+            # wizard mode: use the form's values, falling back to stored creds
+            # (lets users browse BEFORE saving anything)
+            stored = get_creds()
+            creds = {
+                "host": (body.get("host") or "").strip() or stored.get("host", ""),
+                "port": int(body.get("port") or stored.get("port") or 21),
+                "user": (body.get("user") or "").strip() or stored.get("user", ""),
+                "password": body.get("password") or stored.get("password", ""),
+            }
             if not creds.get("host"):
-                self._json({"ok": False, "error": "Not configured yet — save FTP credentials first."})
+                self._json({"ok": False, "error": "Enter FTP host, user and password first (Step 1), or save the config."})
                 return
             raw = (body.get("path") or "/").strip() or "/"
             try:

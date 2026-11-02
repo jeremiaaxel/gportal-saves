@@ -245,20 +245,33 @@ async function probeClientDir() {
       $("#suggest-path").textContent = r.path;
       sug.dataset.path = r.path;
       sug.classList.remove("hidden");
+      updateGameDirReset();
       return true;
     }
     sug.classList.add("hidden");
+    updateGameDirReset();
     return false;
   } catch (e) {
     $("#client-dir-suggestion").classList.add("hidden");
+    updateGameDirReset();
     return false;
   }
 }
 
+/* Step 3 reset: visible when a detected path exists OR the field has a value */
+function updateGameDirReset() {
+  const hasValue = !!$("#cfg-client-dir").value.trim();
+  const hasDetected = !!$("#client-dir-suggestion").dataset.path;
+  $("#btn-cfg-suggest").classList.toggle("hidden", !hasValue && !hasDetected);
+}
+
+$("#cfg-client-dir").addEventListener("input", updateGameDirReset);
+
 $("#btn-use-suggestion").onclick = () => {
   const sug = $("#client-dir-suggestion");
   $("#cfg-client-dir").value = sug.dataset.path || "";
-  $("#cfg-parse-result").textContent = "✔ Using the detected save folder on this PC (Step 2).";
+  updateGameDirReset();
+  $("#cfg-parse-result").textContent = "✔ Using the detected save folder on this PC (Step 3).";
   $("#cfg-parse-result").className = "ok";
 };
 
@@ -356,6 +369,7 @@ async function nativePick(startPath) {
     });
     if (r.ok && r.path) {
       $("#cfg-client-dir").value = r.path;
+      updateGameDirReset(); // programmatic set doesn't fire 'input'
       $("#cfg-parse-result").textContent = "✔ Save folder selected via system dialog.";
       $("#cfg-parse-result").className = "ok";
     } else if (r.cancelled) {
@@ -417,6 +431,7 @@ $("#btn-cfg-suggest").onclick = async () => {
     const path = $("#client-dir-suggestion").dataset.path;
     if (found && path) {
       $("#cfg-client-dir").value = path;
+      updateGameDirReset();
       $("#cfg-parse-result").textContent = "✔ Using the detected save folder on this PC (Step 3).";
       $("#cfg-parse-result").className = "ok";
     } else {
@@ -452,10 +467,18 @@ $("#btn-browse-store").onclick = async () => {
 const ftpBrowser = { cwd: "/" };
 
 async function ftpList(path) {
+  // send the form's connection fields so browsing works before first save;
+  // server merges with stored config (form wins)
   const r = await api("/api/ftp/list", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path }),
+    body: JSON.stringify({
+      path,
+      host: $("#cfg-host").value.trim(),
+      port: parseInt($("#cfg-port").value || "21", 10),
+      user: $("#cfg-user").value.trim(),
+      password: $("#cfg-pass").value,
+    }),
   });
   if (!r.ok) throw new Error(r.error || "FTP listing failed");
   return r;
@@ -646,6 +669,7 @@ function setSetupMode(mode) {
     // manual row is always visible; suggestion card only when nothing stored yet
     if (configState.client_dir) {
       $("#client-dir-suggestion").classList.add("hidden");
+      updateGameDirReset();
     } else {
       probeClientDir();
     }

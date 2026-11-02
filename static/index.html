@@ -65,6 +65,16 @@
         <div id="cfg-test-result" class="test-result">Not tested yet — this checks your login, detects the game, and probes every save path on the server.</div>
       </div>
 
+      <div class="wstep" id="wstep-ftp">
+        <h3>Step 1b · Server save folder <span class="hint">(advanced — auto-detect works on GPORTAL)</span></h3>
+        <p class="muted" id="ftp-root-note">The game's save folder on the server is found automatically. Only set this if auto-detection fails (unusual hosting layout).</p>
+        <div class="row">
+          <input id="cfg-ftp-root" placeholder="(auto-detect)" autocomplete="off" spellcheck="false" style="flex:1">
+          <button id="btn-browse-ftp" class="btn">📁 Browse FTP…</button>
+          <button id="btn-ftp-root-clear" class="btn tiny hidden">Use auto-detect</button>
+        </div>
+      </div>
+
       <div class="wstep" id="wstep-2">
         <h3>Step 2 · Your PC's Icarus save folder <span class="hint">(optional — for the offline test)</span></h3>
         <div id="client-dir-suggestion" class="suggest hidden">
@@ -83,6 +93,7 @@
             <button id="btn-browse-client-dir" class="btn">📁 Browse…</button>
             <button id="btn-cfg-suggest" class="btn tiny">Use detected path</button>
           </div>
+          <p class="muted" id="pick-hint" style="margin-top:6px">📁 Browse… opens your system's folder picker (Dolphin).</p>
         </div>
       </div>
 
@@ -196,23 +207,25 @@
 </main>
 
 <!-- ══════════ FOLDER BROWSER MODAL ══════════ -->
-<div class="modal-backdrop hidden" id="browser-backdrop">
-  <div class="modal" role="dialog" aria-modal="true" aria-label="Choose folder">
+
+<!-- ══════════ FTP FOLDER BROWSER MODAL ══════════ -->
+<div class="modal-backdrop hidden" id="ftp-browser-backdrop">
+  <div class="modal" role="dialog" aria-modal="true" aria-label="Choose server folder">
     <div class="modal-head">
-      <b>Choose the Icarus save folder on this PC</b>
-      <button id="btn-browser-close" class="btn tiny">✕</button>
+      <b>Choose the game folder on the FTP server</b>
+      <button id="btn-ftp-browser-close" class="btn tiny">✕</button>
     </div>
     <div class="modal-crumbs">
-      <button id="btn-browser-up" class="btn tiny">⬆ Up</button>
-      <code id="browser-path" class="browser-path"></code>
+      <button id="btn-ftp-browser-up" class="btn tiny">⬆ Up</button>
+      <code id="ftp-browser-path" class="browser-path"></code>
     </div>
-    <div id="browser-list" class="browser-list"></div>
-    <div id="browser-status" class="muted"></div>
+    <div id="ftp-browser-list" class="browser-list"></div>
+    <div id="ftp-browser-status" class="muted"></div>
     <div class="modal-foot">
-      <button id="btn-browser-jump" class="btn tiny">⇢ Jump to detected path</button>
+      <span id="ftp-browser-hint" class="muted"></span>
       <span class="spacer"></span>
-      <button id="btn-browser-cancel" class="btn">Cancel</button>
-      <button id="btn-browser-pick" class="btn primary">Use this folder</button>
+      <button id="btn-ftp-browser-cancel" class="btn">Cancel</button>
+      <button id="btn-ftp-browser-pick" class="btn primary">Use this folder</button>
     </div>
   </div>
 </div>

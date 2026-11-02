@@ -188,6 +188,7 @@ function readWizard() {
     user: $("#cfg-user").value.trim(),
     password: $("#cfg-pass").value,
     client_dir: $("#cfg-client-dir").value.trim(),
+    ftp_root: $("#cfg-ftp-root").value.trim(),
   };
 }
 
@@ -353,67 +354,100 @@ $("#btn-use-custom").onclick = () => {
 
 $("#btn-cfg-suggest").onclick = () => probeClientDir();
 
-/* ── folder browser modal ────────────────────────────────── */
+/* ── native folder picker (real OS dialog, e.g. Dolphin) ─── */
+async function nativePick(startPath) {
+  // blocks until the user closes the OS dialog — busy state so it's obvious
+  const btn = $("#btn-browse-client-dir");
+  setBusy(btn, "⏳ Pick a folder in the dialog…", 3600000); // user-paced
+  try {
+    const r = await api("/api/fs/pick", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ start: startPath }),
+    });
+    if (r.ok && r.path) {
+      $("#cfg-client-dir").value = r.path;
+      $("#cfg-parse-result").textContent = "✔ Save folder selected via system dialog.";
+      $("#cfg-parse-result").className = "ok";
+    } else if (r.cancelled) {
+      $("#cfg-parse-result").textContent = "Folder selection cancelled.";
+      $("#cfg-parse-result").className = "muted";
+    } else {
+      $("#cfg-parse-result").textContent = "✘ " + (r.error || "Picker failed.");
+      $("#cfg-parse-result").className = "err";
+    }
+  } catch (e) {
+    $("#cfg-parse-result").textContent = "✘ " + e.message;
+    $("#cfg-parse-result").className = "err";
+  } finally {
+    clearBusy(btn);
+  }
+}
+
+$("#btn-browse-client-dir").onclick = () =>
+  nativePick($("#cfg-client-dir").value.trim() || (browserState.suggestion ?? ""));
+
 const browserState = { cwd: "", suggestion: null };
 
-async function fsList(path) {
-  const r = await api("/api/fs/list", {
+/* ── FTP folder override (server save folder) ───────────── */
+function updateFtpRootNote() {
+  const v = $("#cfg-ftp-root").value.trim();
+  $("#ftp-root-note").textContent = v
+    ? `Override active: save paths resolve under "${v}" on the server. Test connection to verify.`
+    : "The game's save folder on the server is found automatically. Only set this if auto-detection fails (unusual hosting layout).";
+  $("#btn-ftp-root-clear").classList.toggle("hidden", !v);
+}
+
+$("#cfg-ftp-root").addEventListener("input", updateFtpRootNote);
+$("#btn-ftp-root-clear").onclick = () => {
+  $("#cfg-ftp-root").value = "";
+  updateFtpRootNote();
+};
+
+const ftpBrowser = { cwd: "/" };
+
+async function ftpList(path) {
+  const r = await api("/api/ftp/list", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ path }),
   });
-  if (!r.ok) throw new Error(r.error || "Listing failed");
+  if (!r.ok) throw new Error(r.error || "FTP listing failed");
   return r;
 }
 
-function renderBrowser(r) {
-  browserState.cwd = r.path;
-  browserState.suggestion = r.suggestion;
-  $("#browser-path").textContent = r.path || "Computer";
-  const list = $("#browser-list");
+function renderFtpBrowser(r) {
+  ftpBrowser.cwd = r.path || "/";
+  $("#ftp-browser-path").textContent = ftpBrowser.cwd;
+  const list = $("#ftp-browser-list");
   list.innerHTML = "";
-  if (r.is_root_listing) {
-    for (const entry of r.entries) {
-      list.appendChild(browserRow(entry, entry, "🏠", false));
-    }
-  } else {
-    for (const name of r.entries) {
-      list.appendChild(browserRow(name, joinPath(r.path, name), "📁", false));
-    }
-    if (!r.entries.length) {
-      const d = document.createElement("div");
-      d.className = "muted";
-      d.style.padding = "8px";
-      d.textContent = "No subfolders" + (r.files ? ` — ${r.files} file(s) here` : "");
-      list.appendChild(d);
-    }
+  for (const name of r.entries) {
+    const el = document.createElement("button");
+    el.className = "browser-row";
+    el.innerHTML = `<span class="bicon">📁</span><span class="bname"></span>`;
+    el.querySelector(".bname").textContent = name;
+    const child = ftpBrowser.cwd === "/" ? "/" + name : ftpBrowser.cwd + "/" + name;
+    el.onclick = () => openFtpBrowserAt(child);
+    list.appendChild(el);
   }
-  $("#btn-browser-up").disabled = !r.parent;
-  $("#btn-browser-jump").disabled = !r.suggestion;
-  $("#btn-browser-jump").textContent = r.suggestion_here ? "✔ This is the detected path" : "⇢ Jump to detected path";
-  // pick button semantic: roots need a navigation first
-  $("#btn-browser-pick").disabled = r.is_root_listing;
-  $("#btn-browser-pick").textContent = r.suggestion_here ? "✔ Use this folder (detected save path)" : "Use this folder";
+  if (!r.entries.length) {
+    const d = document.createElement("div");
+    d.className = "muted";
+    d.style.padding = "8px";
+    d.textContent = `No subfolders${r.files ? ` — ${r.files} file(s) here` : ""}`;
+    list.appendChild(d);
+  }
+  $("#btn-ftp-browser-up").disabled = !r.parent;
+  $("#ftp-browser-hint").textContent = r.game_root_here
+    ? `✔ This folder contains the game: ${r.game_root_here}`
+    : "";
 }
 
-function joinPath(dir, name) {
-  return dir.endsWith("/") ? dir + name : dir + "/" + name;
-}
-
-function browserRow(label, target, icon, muted) {
-  const el = document.createElement("button");
-  el.className = "browser-row" + (muted ? " muted-row" : "");
-  el.innerHTML = `<span class="bicon">${icon}</span><span class="bname"></span>`;
-  el.querySelector(".bname").textContent = label;
-  el.onclick = () => openBrowserAt(target);
-  return el;
-}
-
-async function openBrowserAt(path) {
-  const list = $("#browser-list");
+async function openFtpBrowserAt(path) {
+  const list = $("#ftp-browser-list");
   list.innerHTML = `<div class="muted" style="padding:8px">Loading…</div>`;
   try {
-    renderBrowser(await fsList(path));
+    renderFtpBrowser(await ftpList(path));
   } catch (e) {
     list.innerHTML = "";
     const d = document.createElement("div");
@@ -424,39 +458,33 @@ async function openBrowserAt(path) {
   }
 }
 
-function openBrowser() {
-  $("#browser-backdrop").classList.remove("hidden");
-  // start from: current field value > detected suggestion > roots
-  const start = $("#cfg-client-dir").value.trim() || browserState.suggestion || "";
-  openBrowserAt(start);
+function openFtpBrowser() {
+  $("#ftp-browser-backdrop").classList.remove("hidden");
+  openFtpBrowserAt($("#cfg-ftp-root").value.trim() || "/");
 }
 
-function closeBrowser() {
-  $("#browser-backdrop").classList.add("hidden");
+function closeFtpBrowser() {
+  $("#ftp-browser-backdrop").classList.add("hidden");
 }
 
-$("#btn-browse-client-dir").onclick = openBrowser;
-$("#btn-browser-close").onclick = closeBrowser;
-$("#btn-browser-cancel").onclick = closeBrowser;
-$("#btn-browser-up").onclick = () => {
-  if (browserState.cwd) openBrowserAt(browserState.cwd.replace(/[^/]+\/?$/, "") || "");
+$("#btn-browse-ftp").onclick = openFtpBrowser;
+$("#btn-ftp-browser-close").onclick = closeFtpBrowser;
+$("#btn-ftp-browser-cancel").onclick = closeFtpBrowser;
+$("#btn-ftp-browser-up").onclick = () => {
+  if (ftpBrowser.cwd && ftpBrowser.cwd !== "/") {
+    openFtpBrowserAt(ftpBrowser.cwd.replace(/\/[^/]+\/?$/, "") || "/");
+  }
 };
-$("#btn-browser-jump").onclick = () => {
-  if (browserState.suggestion) openBrowserAt(browserState.suggestion);
+$("#btn-ftp-browser-pick").onclick = () => {
+  $("#cfg-ftp-root").value = ftpBrowser.cwd === "/" ? "" : ftpBrowser.cwd;
+  closeFtpBrowser();
+  updateFtpRootNote();
 };
-$("#btn-browser-pick").onclick = () => {
-  if (!browserState.cwd) return;
-  $("#cfg-client-dir").value = browserState.cwd;
-  closeBrowser();
-  $("#cfg-parse-result").textContent = "✔ Client save folder selected.";
-  $("#cfg-parse-result").className = "ok";
-};
-// close on backdrop click / Escape
-$("#browser-backdrop").addEventListener("click", (e) => {
-  if (e.target === $("#browser-backdrop")) closeBrowser();
+$("#ftp-browser-backdrop").addEventListener("click", (e) => {
+  if (e.target === $("#ftp-browser-backdrop")) closeFtpBrowser();
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && !$("#browser-backdrop").classList.contains("hidden")) closeBrowser();
+  if (e.key === "Escape" && !$("#ftp-browser-backdrop").classList.contains("hidden")) closeFtpBrowser();
 });
 
 async function testConfig(payload, resultEl) {
@@ -562,6 +590,8 @@ function setSetupMode(mode) {
     $("#cfg-port").value = configState.port || 21;
     $("#cfg-user").value = configState.user || "";
     $("#cfg-client-dir").value = configState.client_dir || "";
+    $("#cfg-ftp-root").value = configState.ftp_root || "";
+    updateFtpRootNote();
     $("#cfg-pass").value = "";
     $("#cfg-pass").placeholder = configState.has_password
       ? "stored — leave blank to keep" : "FTP password";

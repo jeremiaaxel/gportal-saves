@@ -117,6 +117,7 @@ def _public_config() -> dict:
         "user": c.get("user", ""),
         "has_password": bool(c.get("password")),
         "client_dir": c.get("client_dir", ""),
+        "ftp_root": c.get("ftp_root", ""),
         "storage": config_store.storage_kind(),
         "version": VERSION,
     }
@@ -165,6 +166,30 @@ def validate_creds(host: str, port: int, user: str, password: str, timeout: int 
     raise TimeoutError(f"FTP did not respond within {timeout}s (retried once): {last_err}")
 
 
+def resolve_game_spec(ftp, ftp_root: str = "") -> tuple[games_mod.GameSpec | None, str]:
+    """Return (spec, base) where base is the FTP dir the game lives under.
+
+    ftp_root override (from config) takes precedence: paths are probed
+    relative to it first; on miss we still try plain auto-detection so a
+    stale override degrades gracefully instead of breaking backups.
+    """
+    if ftp_root:
+        base = "/" + ftp_root.strip("/") if ftp_root.strip("/") else ""
+        for gid in games_mod.GAMES:
+            spec = games_mod.GAMES[gid]
+            probe = posixpath.join(base, spec.root)
+            try:
+                if ftp_ops.mlsd(ftp, probe) is not None:
+                    return spec, base
+            except Exception:
+                continue
+    # auto-detect from FTP root
+    spec = games_mod.detect_game_from_dirs(ftp)
+    if spec is not None:
+        return spec, ""
+    return None, ""
+
+
 def run_pull(job_id: str) -> None:
     creds = get_creds()
     if not creds.get("host"):
@@ -173,20 +198,20 @@ def run_pull(job_id: str) -> None:
     log(job_id, f"Connecting to FTP {creds['host']}:{creds.get('port', 21)}…")
     ftp = ftp_ops.connect(creds["host"], creds["port"], creds["user"], creds["password"])
     try:
-        spec = games_mod.detect_game_from_dirs(ftp)
+        spec, base = resolve_game_spec(ftp, creds.get("ftp_root", ""))
         if spec is None:
             JOBS[job_id].update(
                 status="error",
                 error="Could not auto-detect a known game from the FTP root. "
-                "Please check the path mapping in games.py (GPORTAL may mount FTP root at '/' with the game folder under it).",
+                "Set the server folder manually in ⚙ Settings (FTP folder override).",
             )
             return
-        log(job_id, f"Detected game: {spec.title} (root: {spec.root})")
+        log(job_id, f"Detected game: {spec.title} (root: {posixpath.join(base, spec.root) if base else spec.root})")
         snap_dir = store.new_snapshot_dir(spec.game_id)
         log(job_id, f"Snapshot dir: {snap_dir}")
         files: list[ftp_ops.FtpFile] = []
         for p in spec.paths:
-            full = posixpath.join(spec.root, p.rel_path)
+            full = posixpath.join(base, spec.root, p.rel_path) if base else posixpath.join(spec.root, p.rel_path)
             log(job_id, f"Listing {full}…")
             try:
                 ftp_ops.walk(ftp, full, files)
@@ -204,7 +229,9 @@ def run_pull(job_id: str) -> None:
         done = 0
         started = time.time()
         for f in to_fetch:
-            rel = posixpath.relpath(f.path, spec.root)
+            # strip the (possibly overridden) base so snapshots stay spec-relative
+            strip_from = posixpath.join(base, spec.root) if base else spec.root
+            rel = posixpath.relpath(f.path, strip_from)
             local = snap_dir / rel
             got = ftp_ops.download(ftp, f.path, str(local))
             done += got
@@ -247,11 +274,16 @@ def run_push(job_id: str, snap_name: str | None, target: str = "server") -> None
         if not creds.get("host"):
             JOBS[job_id].update(status="error", error="No FTP credentials configured.")
             return
+        # honor the FTP folder override (same base logic as run_pull)
+        base = ""
+        if creds.get("ftp_root"):
+            base = "/" + creds["ftp_root"].strip("/")
         log(job_id, f"Restoring snapshot {snap_dir.name} to server…")
         ftp = ftp_ops.connect(creds["host"], creds["port"], creds["user"], creds["password"])
         try:
+            strip_from = posixpath.join(base, spec.root) if base else spec.root
             for p in spec.paths:
-                full = posixpath.join(spec.root, p.rel_path)
+                full = posixpath.join(strip_from, p.rel_path)
                 local_base = snap_dir / p.rel_path
                 if not local_base.exists():
                     log(job_id, f"(optional) {p.rel_path} not in snapshot — skipping")
@@ -261,7 +293,7 @@ def run_push(job_id: str, snap_name: str | None, target: str = "server") -> None
                 log(job_id, f"Uploading {total} files to {full}…")
                 for i, lf in enumerate(local_files, 1):
                     rel = lf.relative_to(snap_dir).as_posix()
-                    remote = posixpath.join(spec.root, rel)
+                    remote = posixpath.join(strip_from, rel)
                     ftp_ops.upload(ftp, str(lf), remote)
                     log(job_id, f"  [{i}/{total}] {rel}")
             log(job_id, "✔ Restore to server complete. Restart the server in the GPORTAL web UI, then connect.")
@@ -355,12 +387,15 @@ def run_status(job_id: str) -> None:
     ftp = ftp_ops.connect(creds["host"], creds["port"], creds["user"], creds["password"])
     try:
         root = ftp_ops.mlsd(ftp, "/")
-        spec = games_mod.detect_game_from_dirs(ftp)
+        spec, base = resolve_game_spec(ftp, creds.get("ftp_root", ""))
         log(job_id, f"FTP root: {[e.path for e in root]}")
+        if creds.get("ftp_root"):
+            log(job_id, f"Folder override active: {creds['ftp_root']}")
         log(job_id, f"Detected game: {spec.title if spec else 'unknown'}")
         if spec:
+            strip_from = posixpath.join(base, spec.root) if base else spec.root
             for p in spec.paths:
-                full = posixpath.join(spec.root, p.rel_path)
+                full = posixpath.join(strip_from, p.rel_path)
                 try:
                     entries = ftp_ops.walk(ftp, full)
                     n = sum(1 for e in entries if not e.is_dir)
@@ -526,6 +561,60 @@ def open_in_file_manager(path: Path) -> bool:
         return True
     except OSError:
         return False
+
+
+def native_pick_folder(start: str = "") -> dict:
+    """Open the OS's native folder picker and return the chosen path.
+
+    KDE: kdialog — GNOME/other: zenity — Windows: tkinter — macOS: osascript.
+    Blocks until the user closes the dialog; local tool, so that's fine.
+    """
+    import shutil
+    import subprocess
+    import sys
+
+    start_dir = start if start and Path(start).is_dir() else str(Path.home())
+    try:
+        if sys.platform == "darwin":
+            r = subprocess.run(
+                ["osascript", "-e",
+                 f'POSIX file "{start_dir}" as text'],
+                capture_output=True, text=True, timeout=600)
+            script = (f'tell application "System Events" to activate\r'
+                      f'set _p to choose folder default location POSIX file "{start_dir}"\r'
+                      f'return POSIX path of _p')
+            r = subprocess.run(["osascript", "-e", script],
+                               capture_output=True, text=True, timeout=600)
+            if r.returncode != 0:
+                return {"ok": False, "cancelled": True}
+            return {"ok": True, "path": r.stdout.strip()}
+        if sys.platform == "win32":
+            import tkinter as tk
+            from tkinter import filedialog
+
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes("-topmost", True)
+            path = filedialog.askdirectory(initialdir=start_dir)
+            root.destroy()
+            if not path:
+                return {"ok": False, "cancelled": True}
+            return {"ok": True, "path": path}
+        # Linux / BSD: kdialog first (native KDE), then zenity
+        for cmd in (["kdialog", "--getexistingdirectory", start_dir],
+                    ["zenity", "--file-selection", "--directory",
+                     "--filename", start_dir + "/"]):
+            if shutil.which(cmd[0]) is None:
+                continue
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+            if r.returncode != 0 or not r.stdout.strip():
+                return {"ok": False, "cancelled": True}
+            return {"ok": True, "path": r.stdout.strip().rstrip("/")}
+        return {"ok": False, "error": "No folder picker available (install kdialog or zenity)."}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "cancelled": True}
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
 
 def delete_snapshot(game_id: str, name: str) -> dict:
@@ -698,6 +787,39 @@ class Handler(BaseHTTPRequestHandler):
             ln = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(ln) or b"{}")
             self._json(list_dir(body.get("path", "")))
+        elif self.path == "/api/ftp/list":
+            ln = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(ln) or b"{}")
+            creds = get_creds()
+            if not creds.get("host"):
+                self._json({"ok": False, "error": "Not configured yet — save FTP credentials first."})
+                return
+            raw = (body.get("path") or "/").strip() or "/"
+            try:
+                ftp = ftp_ops.connect(creds["host"], creds["port"], creds["user"], creds["password"])
+                try:
+                    entries = ftp_ops.mlsd(ftp, raw)
+                    dirs = sorted(
+                        posixpath.basename(e.path) for e in entries if e.is_dir
+                    )
+                    files = sum(1 for e in entries if not e.is_dir)
+                    parent = posixpath.dirname(raw) or "/" if raw != "/" else None
+                    # offer game-spec hints for the current dir
+                    hint = None
+                    for gid, spec in games_mod.GAMES.items():
+                        probe = posixpath.join(raw, spec.root)
+                        try:
+                            ftp_ops.mlsd(ftp, probe)
+                            hint = posixpath.join(raw, spec.root)
+                            break
+                        except Exception:
+                            continue
+                    self._json({"ok": True, "path": raw, "entries": dirs,
+                                "files": files, "parent": parent, "game_root_here": hint})
+                finally:
+                    ftp_ops.close(ftp)
+            except Exception as e:
+                self._json({"ok": False, "error": f"{type(e).__name__}: {e}"})
         elif self.path == "/api/fs/open":
             ln = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(ln) or b"{}")
@@ -708,6 +830,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": True, "path": str(rp)})
             else:
                 self._json({"ok": False, "error": "No file manager available (xdg-open failed)."})
+        elif self.path == "/api/fs/pick":
+            # native OS folder dialog; blocks until user picks/cancels
+            ln = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(ln) or b"{}")
+            self._json(native_pick_folder(body.get("start", "")))
         elif self.path == "/api/snapshots/delete":
             ln = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(ln) or b"{}")
